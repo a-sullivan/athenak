@@ -47,10 +47,10 @@ gamma_max   = 100.0
 sigma_max = 100.0
 
 <problem>
-pgen_name    = disk_magnetosphere
-user_srcs    = true
+pgen_name    = split_monopole
+user_srcs    = false
 
-# --- disk geometry ---
+# --- geometry ---
 x0           = 0.0 
 y0           = 0.0
 z0           = 0.0
