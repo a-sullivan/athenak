@@ -1,0 +1,81 @@
+<job>
+basename  = split_monopole
+
+<mesh>
+nghost    = 4
+nx1       = 32
+x1min     = -10
+x1max     =  10
+ix1_bc    = outflow
+ox1_bc    = outflow
+
+nx2       = 32
+x2min     = -10
+x2max     =  10
+ix2_bc    = outflow
+ox2_bc    = outflow
+
+nx3       = 32
+x3min     = -10
+x3max     =  10
+ix3_bc    = outflow
+ox3_bc    = outflow
+
+<meshblock>
+nx1       = 16
+nx2       = 16
+nx3       = 16
+
+<coord>
+special_rel = true     # SR MHD metric helpers on (flat spacetime)
+
+<time>
+evolution   = dynamic
+integrator  = rk2
+cfl_number  = 0.3
+tlim        = 10.1
+
+<mhd>
+eos         = ideal
+gamma       = 1.3333333333
+reconstruct = ppmx
+rsolver     = hlle
+dfloor      = 1.0e-8
+pfloor      = 3.0e-11
+fofc        = true
+gamma_max   = 100.0
+sigma_max = 100.0
+
+<problem>
+pgen_name    = disk_magnetosphere
+user_srcs    = true
+
+# --- disk geometry ---
+x0           = 0.0 
+y0           = 0.0
+z0           = 0.0
+
+
+# --- pulsar ---
+Omega   = 0.0    # solid-body rate inside corotation
+r_star = 5 # radius of the neutron star 
+rho0 = 1.0 # density in the whole region
+p0 = 1.0e-4 #pressure in the whole region
+t_ramp  = 0.0    # spin-up timescale (smoothstep 0→Omega over this time); 0 = instant
+
+
+# --- magnetosphere ---
+sigma0           = 10.0    # magnetization
+delta = 1  # current sheet thickness
+
+
+# ---------------- Outputs ----------------
+<output1>
+file_type   = hst
+data_format = %12.5e
+dt          = 5.0
+
+<output2>
+file_type  = bin          # 3D binary dump (full volume)
+variable   = mhd_w_bcc        # SR/NR MHD primitives: rho, press, vel1..3, etc.
+dt         = 1.0

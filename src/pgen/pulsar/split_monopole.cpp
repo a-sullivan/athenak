@@ -109,6 +109,10 @@ void A_vec_split_monopole(Real x, Real y, Real z,
     Az = 0.0;
 }
 
+namespace pw {
+
+}
+
 
 // Discrete face-centered curl (uniform Cartesian)
 KOKKOS_INLINE_FUNCTION
@@ -134,8 +138,8 @@ void ProblemGenerator::UserProblem(ParameterInput *pin, const bool restart){
     // neutron star paremeters
     pw::P.r_star = pin->GetOrAddReal("problem", "r_star", 10.0);
     pw::P.Omega = pin->GetOrAddReal("problem", "Omega", 0.0);
-    pw::P.rho0 = pin->GetOrAddReal("problem", "rho0", 1);
-    pw::P.p0 = pin->GetOrAddReal("problem", "p0", 1);
+    pw::P.rho0 = pin->GetOrAddReal("problem", "rho0", 1.0);
+    pw::P.p0 = pin->GetOrAddReal("problem", "p0", 1.e-4);
 
     // magnetosphere
     pw::P.delta = pin->GetOrAddReal("problem", "delta", 1.0);
