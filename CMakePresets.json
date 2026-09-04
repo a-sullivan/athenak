@@ -1,0 +1,125 @@
+{
+  "version": 3,
+  "cmakeMinimumRequired": {
+    "major": 3,
+    "minor": 19,
+    "patch": 0
+  },
+  "configurePresets": [
+    {
+      "name": "sullivan-cpu",
+      "description": "Build for Apple M3 with Homebrew LLVM and OpenMP",
+      "generator": "Unix Makefiles",
+      "binaryDir": "build",
+      "cacheVariables": {
+        "CMAKE_C_COMPILER": "/opt/homebrew/bin/mpicc",
+        "CMAKE_CXX_COMPILER": "/opt/homebrew/bin/mpicc",
+        "Kokkos_ARCH_ARMV81": "ON",
+        "Athena_ENABLE_MPI": "ON",
+        "CMAKE_CXX_FLAGS": "-I/opt/homebrew/include",
+        "CMAKE_EXE_LINKER_FLAGS": "-L/opt/homebrew/lib  -Wl,-rpath,/opt/homebrew/lib",
+        "Kokkos_ENABLE_OPENMP": "OFF"
+      }
+    },
+    {
+      "name": "sullivan-cpu-openmp",
+      "description": "Build for Apple M3 with Homebrew LLVM and OpenMP",
+      "generator": "Unix Makefiles",
+      "binaryDir": "build",
+      "cacheVariables": {
+        "CMAKE_C_COMPILER": "/opt/homebrew/bin/mpicc",
+        "CMAKE_CXX_COMPILER": "/opt/homebrew/bin/mpicxx",
+        "Kokkos_ARCH_ARMV81": "ON",
+        "Athena_ENABLE_MPI": "OFF",
+        "CMAKE_CXX_FLAGS": "-fopenmp -I/opt/homebrew/include",
+        "CMAKE_EXE_LINKER_FLAGS": "-L/opt/homebrew/lib -lomp -Wl,-rpath,/opt/homebrew/lib",
+        "Kokkos_ENABLE_OPENMP": "ON"
+      }
+    },
+    {
+      "name": "sullivan-cpu-nompi",
+      "description": "Build for Apple M3 with Homebrew LLVM and OpenMP",
+      "generator": "Unix Makefiles",
+      "binaryDir": "build",
+      "cacheVariables": {
+        "CMAKE_C_COMPILER": "/opt/homebrew/bin/mpicc",
+        "CMAKE_CXX_COMPILER": "/opt/homebrew/bin/mpicc",
+        "CMAKE_OSX_ARCHITECTURES": "arm64", 
+        "Kokkos_ARCH_ARMV81": "ON",
+        "Athena_ENABLE_MPI": "OFF",
+        "CMAKE_CXX_FLAGS": "-I/opt/homebrew/include",
+        "CMAKE_EXE_LINKER_FLAGS": "-L/opt/homebrew/lib  -Wl,-rpath,/opt/homebrew/lib",
+        "Kokkos_ENABLE_OPENMP": "OFF"
+      }
+    },
+    {
+      "name": "sullivan-cpu-nompi-native",
+      "description": "Build for Apple M3 with Homebrew LLVM",
+      "generator": "Unix Makefiles",
+      "binaryDir": "build",
+      "cacheVariables": {
+        "CMAKE_C_COMPILER": "/opt/homebrew/bin/mpicc",
+        "CMAKE_CXX_COMPILER": "/opt/homebrew/bin/mpicc",
+        "Kokkos_ARCH_NATIVE": "ON",
+        "Athena_ENABLE_MPI": "OFF",
+        "CMAKE_CXX_FLAGS": "-I/opt/homebrew/include",
+        "CMAKE_EXE_LINKER_FLAGS": "-L/opt/homebrew/lib  -Wl,-rpath,/opt/homebrew/lib",
+        "Kokkos_ENABLE_OPENMP": "OFF"
+      }
+    },
+    
+    {
+        "name": "sullivan-cpu-std-advanced",
+        "description": "Build for Apple M3 with Homebrew LLVM and OpenMP",
+        "generator": "Unix Makefiles",
+        "binaryDir": "build",
+        "cacheVariables": {
+          "CMAKE_C_COMPILER": "/opt/homebrew/bin/mpicc",
+          "CMAKE_CXX_COMPILER": "/opt/homebrew/bin/mpicc",
+          "CMAKE_OSX_ARCHITECTURES": "arm64", 
+          "Kokkos_ARCH_ARMV81": "ON",
+          "Athena_ENABLE_MPI": "ON",
+          "CMAKE_CXX_FLAGS": "-stdlib=libc++ -I/opt/homebrew/include",
+          "CMAKE_EXE_LINKER_FLAGS": "-L/opt/homebrew/lib  -Wl,-rpath,/opt/homebrew/lib -lc++",
+          "CMAKE_SHARED_LINKER_FLAGS": "-stdlib=libc++",
+          "Kokkos_ENABLE_OPENMP": "OFF"
+        }
+    },
+    {
+      "name": "sullivan-cpu-std-advanced-openmp",
+      "description": "Build for Apple M3 with Homebrew LLVM and OpenMP",
+      "generator": "Unix Makefiles",
+      "binaryDir": "build",
+      "cacheVariables": {
+        "CMAKE_C_COMPILER": "/opt/homebrew/bin/mpicc",
+        "CMAKE_CXX_COMPILER": "/opt/homebrew/bin/mpicc",
+        "CMAKE_OSX_ARCHITECTURES": "arm64", 
+        "Kokkos_ARCH_ARMV81": "ON",
+        "Athena_ENABLE_MPI": "ON",
+        "CMAKE_CXX_FLAGS": "-fopenmp -stdlib=libc++ -I/opt/homebrew/include",
+        "CMAKE_EXE_LINKER_FLAGS": "-L/opt/homebrew/lib -lomp -Wl,-rpath,/opt/homebrew/lib -lc++",
+        "CMAKE_SHARED_LINKER_FLAGS": "-stdlib=libc++",
+        "Kokkos_ENABLE_OPENMP": "ON"
+      }
+    },
+    {
+      "name": "sullivan-cpu-nompi-std",
+      "description": "Build for Apple M3 with Homebrew LLVM and OpenMP",
+      "generator": "Unix Makefiles",
+      "binaryDir": "build",
+      "cacheVariables": {
+        "CMAKE_C_COMPILER": "/opt/homebrew/bin/mpicc",
+        "CMAKE_CXX_COMPILER": "/opt/homebrew/bin/mpicc",
+        "CMAKE_OSX_ARCHITECTURES": "arm64", 
+        "Kokkos_ARCH_ARMV81": "ON",
+        "Athena_ENABLE_MPI": "OFF",
+        "CMAKE_CXX_FLAGS": "-stdlib=libc++",
+        "CMAKE_EXE_LINKER_FLAGS": "-stdlib=libc++ -lc++",
+        "CMAKE_SHARED_LINKER_FLAGS": "-stdlib=libc++",
+        "Kokkos_ENABLE_OPENMP": "OFF"
+      }
+    }
+  ]
+}
+
+

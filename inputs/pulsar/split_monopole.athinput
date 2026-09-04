@@ -59,15 +59,17 @@ z0           = 0.0
 # --- pulsar ---
 Omega   = 0.0    # solid-body rate inside corotation
 r_star = 5 # radius of the neutron star 
-rho0 = 1.0 # density in the whole region
-p0 = 1.0e-4 #pressure in the whole region
+rho0 = 1.0e-8 # density in the whole region
+p0 = 3.0e-11 #pressure in the whole region
 t_ramp  = 0.0    # spin-up timescale (smoothstep 0→Omega over this time); 0 = instant
 
 
 # --- magnetosphere ---
 sigma0           = 10.0    # magnetization
-delta = 1  # current sheet thickness
+delta = 0.1  # current sheet thickness
 
+#----regulatization ---
+frac_star = 0.5 #fraction of the star that is not set by regulatization
 
 # ---------------- Outputs ----------------
 <output1>
