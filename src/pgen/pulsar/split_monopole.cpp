@@ -66,6 +66,8 @@ struct Params {
 
     //Regularization
     Real theta0;
+    Real frac_star;
+    Real r_interior;
 
    
 
@@ -78,7 +80,7 @@ static Params P;
 KOKKOS_INLINE_FUNCTION
 void A_vec_split_monopole(Real x, Real y, Real z,
            Real x0, Real y0, Real z0, 
-           Real theta0, Real delta, Real A0, Real r_star,
+           Real theta0, Real delta, Real A0, Real r_star, Real r_interior,
            Real &Ax, Real &Ay, Real &Az){
     const Real x_r = x - x0, y_r = y - y0, z_r = z - z0;
     const Real r = sqrt(x_r*x_r+y_r*y_r+z_r*z_r);
@@ -87,25 +89,23 @@ void A_vec_split_monopole(Real x, Real y, Real z,
     const Real sintheta = sqrt(y_r*y_r+x_r*x_r)/r;
     const Real theta = acos(costheta);
 
-    if (theta <= theta0){ 
-        Ax = 0.0;
-        Ay = 0.0;
-    } 
-    else if (theta0 < theta && theta <= (M_PI-delta)/2.0){
-        Real A_phi = A0*(r_star/r)*(1.-costheta)/sintheta;
-        Ax = -A_phi*y_r/r_cyl;
-        Ay =  A_phi*x_r/r_cyl;
+   
+    if (theta <= (M_PI-delta)/2.0){
+        Real A_phi = A0*(r_star/fmax(r, r_interior))/(fmax(r, r_interior)+z_r);
+        Ax = -A_phi*y_r;
+        Ay =  A_phi*x_r;
     } 
     else if (theta > (M_PI-delta)/2.0 && theta < (M_PI+delta)/2.0 ){
-        Real A_phi = -2*A0/delta *(r_star/r)*(1.0-((theta-M_PI/2.0)*costheta+sin((M_PI-delta)/2.0)+delta/2.0)/sintheta);
-        Ax = -A_phi*y_r/r_cyl;
-        Ay =  A_phi*x_r/r_cyl;
+        Real A_phi = -2*A0/delta *(r_star)*(1.0/sqrt(fmax(r, r_interior)*fmax(r, r_interior)-z_r*z_r)-((theta-M_PI/2.0)*costheta+sin((M_PI-delta)/2.0)+delta/2.0)/(fmax(r, r_interior)*fmax(r, r_interior)-z_r*z_r));
+        Ax = -A_phi*y_r;
+        Ay =  A_phi*x_r;
     } 
-    else if (M_PI - theta0 > theta && theta >= (M_PI+delta)/2.0){
-        Ax = 0.0;
-        Ay = 0.0;
+    else if (theta >= (M_PI+delta)/2.0){
+        Real A_phi = A0*(r_star/fmax(r, r_interior))/(fmax(r, r_interior)-z_r);
+        Ax = -A_phi*y_r;
+        Ay =  A_phi*x_r;
     }
-    
+
     Az = 0.0;
 }
 
@@ -148,6 +148,8 @@ void ProblemGenerator::UserProblem(ParameterInput *pin, const bool restart){
 
     //Regularization
     pw::P.theta0 = pin->GetOrAddReal("problem", "theta0", 0.1);
+    pw::P.frac_star = pin->GetOrAddReal("problem", "frac_star", 0.5);
+    pw::P.r_interior = pw::P.frac_star * pw::P.r_star;
 
     //geometry
     pw::P.x0 = pin->GetOrAddReal("problem", "x0", 0.0);
@@ -233,10 +235,10 @@ void ProblemGenerator::UserProblem(ParameterInput *pin, const bool restart){
             }
             Real Ax, Ay, Az, Ay_P, Ay_M, Az_P, Az_M;
 
-            pw::A_vec_split_monopole(xf, yc + 0.5*dx2, zc, x0, y0, z0, theta0, delta, A0, r_star, Ax, Ay, Az); Ay_P = Ay;
-            pw::A_vec_split_monopole(xf, yc - 0.5*dx2, zc, x0, y0, z0, theta0, delta, A0, r_star, Ax, Ay, Az); Ay_M = Ay;
-            pw::A_vec_split_monopole(xf, yc, zc + 0.5*dx3, x0, y0, z0, theta0, delta, A0, r_star, Ax, Ay, Az); Az_P = Az;
-            pw::A_vec_split_monopole(xf, yc, zc - 0.5*dx3, x0, y0, z0, theta0, delta, A0, r_star, Ax, Ay, Az); Az_M = Az;
+            pw::A_vec_split_monopole(xf, yc + 0.5*dx2, zc, x0, y0, z0, theta0, delta, A0, r_star, r_interior, Ax, Ay, Az); Az_P = Az;
+            pw::A_vec_split_monopole(xf, yc - 0.5*dx2, zc, x0, y0, z0, theta0, delta, A0, r_star, r_interior, Ax, Ay, Az); Az_M = Az;
+            pw::A_vec_split_monopole(xf, yc, zc + 0.5*dx3, x0, y0, z0, theta0, delta, A0, r_star, r_interior, Ax, Ay, Az); Ay_P = Ay;
+            pw::A_vec_split_monopole(xf, yc, zc - 0.5*dx3, x0, y0, z0, theta0, delta, A0, r_star, r_interior, Ax, Ay, Az); Ay_M = Ay;
 
             bf.x1f(m, k, j, ifc) = pw::Bx_from_A(Az_P, Az_M, Ay_P, Ay_M, dy, dz);
                
@@ -265,10 +267,10 @@ void ProblemGenerator::UserProblem(ParameterInput *pin, const bool restart){
 
             Real Ax, Ay, Az, Ax_P, Ax_M, Az_P, Az_M;
 
-            pw::A_vec_split_monopole(xc + 0.5*dx1, yf, zc, x0, y0, z0, theta0, delta, A0, r_star, Ax, Ay, Az); Ax_P = Ax;
-            pw::A_vec_split_monopole(xc - 0.5*dx1, yf, zc, x0, y0, z0, theta0, delta, A0, r_star, Ax, Ay, Az); Ax_M = Ax;
-            pw::A_vec_split_monopole(xc, yf, zc + 0.5*dx3, x0, y0, z0, theta0, delta, A0, r_star, Ax, Ay, Az); Az_P = Az;
-            pw::A_vec_split_monopole(xc, yf, zc - 0.5*dx3, x0, y0, z0, theta0, delta, A0, r_star, Ax, Ay, Az); Az_M = Az;
+            pw::A_vec_split_monopole(xc + 0.5*dx1, yf, zc, x0, y0, z0, theta0, delta, A0, r_star, r_interior, Ax, Ay, Az); Az_P = Az;
+            pw::A_vec_split_monopole(xc - 0.5*dx1, yf, zc, x0, y0, z0, theta0, delta, A0, r_star, r_interior, Ax, Ay, Az); Az_M = Az;
+            pw::A_vec_split_monopole(xc, yf, zc + 0.5*dx3, x0, y0, z0, theta0, delta, A0, r_star, r_interior, Ax, Ay, Az); Ax_P = Ax;
+            pw::A_vec_split_monopole(xc, yf, zc - 0.5*dx3, x0, y0, z0, theta0, delta, A0, r_star, r_interior, Ax, Ay, Az); Ax_M = Ax;
 
             bf.x2f(m, k, jfc, i) = pw::By_from_A(Ax_P, Ax_M, Az_P, Az_M, dz, dx);
             
@@ -298,10 +300,10 @@ void ProblemGenerator::UserProblem(ParameterInput *pin, const bool restart){
 
             Real Ax, Ay, Az, Ax_P, Ax_M, Ay_P, Ay_M;
 
-            pw::A_vec_split_monopole(xc + 0.5*dx1, yc, zf, x0, y0, z0, theta0, delta, A0, r_star, Ax, Ay, Az); Ax_P = Ax;
-            pw::A_vec_split_monopole(xc - 0.5*dx1, yc, zf, x0, y0, z0, theta0, delta, A0, r_star, Ax, Ay, Az); Ax_M = Ax;
-            pw::A_vec_split_monopole(xc, yc + 0.5*dx2, zf , x0, y0, z0, theta0, delta, A0, r_star, Ax, Ay, Az); Ay_P = Ay;
-            pw::A_vec_split_monopole(xc, yc - 0.5*dx2, zf , x0, y0, z0, theta0, delta, A0, r_star, Ax, Ay, Az); Ay_M = Ay;
+            pw::A_vec_split_monopole(xc + 0.5*dx1, yc, zf, x0, y0, z0, theta0, delta, A0, r_star, r_interior, Ax, Ay, Az); Ay_P = Ay;
+            pw::A_vec_split_monopole(xc - 0.5*dx1, yc, zf, x0, y0, z0, theta0, delta, A0, r_star, r_interior, Ax, Ay, Az); Ay_M = Ay;
+            pw::A_vec_split_monopole(xc, yc + 0.5*dx2, zf , x0, y0, z0, theta0, delta, A0, r_star, r_interior, Ax, Ay, Az); Ax_P = Ax;
+            pw::A_vec_split_monopole(xc, yc - 0.5*dx2, zf , x0, y0, z0, theta0, delta, A0, r_star, r_interior, Ax, Ay, Az); Ax_M = Ax;
 
             bf.x3f(m, kfc, j, i)  = pw::Bz_from_A(Ay_P, Ay_M, Ax_P, Ax_M, dx, dy);
                
