@@ -187,6 +187,7 @@ void ProblemGenerator::UserProblem(ParameterInput *pin, const bool restart){
         const Real sigma0 = pw::P.sigma0;
         const Real A0 = pw::P.A0;
         const Real delta = pw::P.delta;
+        const Real r_interior = pw::P.r_interior;
 
         
         
