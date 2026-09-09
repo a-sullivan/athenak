@@ -43,6 +43,7 @@
 #include "parameter_input.hpp"
 #include "mesh/mesh.hpp"
 #include "eos/eos.hpp"
+#include "eos/ideal_c2p_mhd.hpp"
 #include "mhd/mhd.hpp"
 #include "coordinates/cell_locations.hpp"
 #include "pgen/pgen.hpp"
@@ -56,63 +57,116 @@ struct Params {
     // Pulsar 
     Real r_star; 
     Real Omega;
-    Real rho0;
-    Real p0; 
 
     // Magnetosphere
     Real A0;
     Real delta;
     Real sigma0;
+    Real beta0;
+    Real rho_surf;
+    Real B0;
 
     //Regularization
     Real theta0;
     Real frac_star;
     Real r_interior;
+    Real epsilon;
+    Real theta_int;
 
-   
+    //track floors
+    Real sigma_max;
+    Real beta_min;
+    Real dfloor;
+    Real pfloor;
+
+    // SNR (currently not implemented)
+    Real rho0;
+    Real p0;  
 
 };
 static Params P;
 
+KOKKOS_INLINE_FUNCTION
+Real F_radial(Real r, Real A0, Real r_star, Real r_i) {
+  return (r > r_i) ? A0*r_star/(r*r)
+                   : (A0*r_star/(r_i*r_i))*(2.0 - (r*r)/(r_i*r_i));
+}
 
 
 
 KOKKOS_INLINE_FUNCTION
 void A_vec_split_monopole(Real x, Real y, Real z,
            Real x0, Real y0, Real z0, 
-           Real theta0, Real delta, Real A0, Real r_star, Real r_interior,
+           Real theta0, Real delta, Real A0,  Real r_star, Real r_interior, Real epsilon, Real theta_int,
            Real &Ax, Real &Ay, Real &Az){
     const Real x_r = x - x0, y_r = y - y0, z_r = z - z0;
-    const Real r = sqrt(x_r*x_r+y_r*y_r+z_r*z_r);
-    const Real r_cyl = sqrt(x_r*x_r+y_r*y_r);  // cylindrical radius
-    const Real costheta = z_r/r;
-    const Real sintheta = sqrt(y_r*y_r+x_r*x_r)/r;
-    const Real theta = acos(costheta);
 
-   
-    if (theta < (M_PI-delta)/2.0){
-        Real A_phi = A0*(r_star/fmax(r, r_interior))/(fmax(r+fabs(z_r), r_interior));
-        Ax = -A_phi*y_r;
-        Ay =  A_phi*x_r;
-    } 
-    else if (theta >= (M_PI-delta)/2.0 && theta < (M_PI+delta)/2.0 ){
-        Real A_phi = -2*A0/delta *(r_star/(fmax(r, r_interior)))*(1.0-((theta-M_PI/2.0)*costheta+sin((M_PI-delta)/2.0)+delta/2.0)/sintheta);
-        Ax = -A_phi*y_r/r_cyl;
-        Ay =  A_phi*x_r/r_cyl;
-    } 
-    else if (theta >= (M_PI+delta)/2.0){
-        Real A_phi = A0*(r_star/fmax(r, r_interior))/(fmax(r+fabs(z_r), r_interior));
-        Ax = -A_phi*y_r;
-        Ay =  A_phi*x_r;
+    const Real r_min = epsilon*r_interior;
+    const Real r = sqrt(fmax(x_r*x_r+y_r*y_r+z_r*z_r, r_min*r_min));
+
+
+    //const Real r_cyl = sqrt(x_r*x_r+y_r*y_r);  // cylindrical radius
+    const Real costheta = fmax(-1.0, fmin(1.0, z_r/r));
+    const Real sintheta = sqrt(fmax(1.0-costheta*costheta, 0.0)); // works for the branch I am in since theta < pi
+
+    // Assumes vector potential is of the form 
+    //  A_x = - F(r) g(theta) y_r
+    //  A_y = F(r) g(theta) z_r
+    // A_coeff = F(r) g(theta)
+    
+
+    // Now let me define the radial shape F(r)
+    // outside r > r_interior, the radial component has the expected split monopole form
+    // inside r < r_interior, the radial component is then regularized to be quadratic in r so there is no divergence at origin
+    const Real F = F_radial(r, A0, r_star, r_interior);
+    
+    // Now let me define the polar shape g(theta)
+    // first define some helper variables
+    const Real sin_d2 = sin(0.5*delta);
+    const Real cos_d2 = cos(0.5*delta);
+    Real g;
+    if (fabs(costheta)>sin_d2){
+        g = 1.0/(1.0+fabs(costheta));
+    } else {
+        const Real K = cos_d2 +0.5*delta;
+        g = (2.0/delta) * (K-asin(costheta)*costheta-sintheta)/(sintheta*sintheta);
+    }
+    
+    // make the interior region flush as you get deeper into the star interior
+    if (r < r_interior) {
+        const Real t = r/r_interior;
+        const Real lam = t*t*(3.0-2.0*t);
+        g = lam * g + (1.0 - lam) * theta_int; // theta_int is a constant 
     }
 
+    const Real A_coeff = F * g;
+    Ax = -A_coeff* y_r;
+    Ay = A_coeff* x_r;
+    // ignore what is below.. this is very old
+    //if (r > r_interior){
+    //    if (theta < (M_PI-delta)/2.0){
+    //        Real A_phi = A0*(r_star/fmax(r, r_interior))/(fmax(r+fabs(z_r), r_interior));
+    //        Ax = -A_phi*y_r;
+    //       Ay =  A_phi*x_r;
+    //    } 
+    //    else if (theta >= (M_PI-delta)/2.0 && theta < (M_PI+delta)/2.0 ){
+    //        Real A_phi = -2*A0/delta *(r_star/(fmax(r, r_interior)))*(1.0-((theta-M_PI/2.0)*costheta+sin((M_PI-delta)/2.0)+delta/2.0)/sintheta);
+    //        Ax = -A_phi*y_r/r_cyl;
+    //        Ay =  A_phi*x_r/r_cyl;
+    //    } 
+    //    else if (theta >= (M_PI+delta)/2.0){
+    //        Real A_phi = A0*(r_star/fmax(r, r_interior))/(fmax(r+fabs(z_r), r_interior));
+    //        Ax = -A_phi*y_r;
+    //        Ay =  A_phi*x_r;
+    //    }
+    //} 
+    //else {
+    //    Real A_phi = A0*(r_star/r_interior)/(r_interior);
+    //    Ax = -A_phi*y_r;
+    //    Ay =  A_phi*x_r;
+    //}
     Az = 0.0;
-}
-
-namespace pw {
-
-}
-
+    }
 
 // Discrete face-centered curl (uniform Cartesian)
 KOKKOS_INLINE_FUNCTION
@@ -128,33 +182,289 @@ Real Bz_from_A(Real Ay_xP, Real Ay_xM, Real Ax_yP, Real Ax_yM, Real dx, Real dy)
   return (Ay_xP - Ay_xM)/dx - (Ax_yP - Ax_yM)/dy;
 }
 
+void Source(Mesh *pm, const Real dt) {
+  auto *pack = pm->pmb_pack;
+  if (!pack || !pack->pmhd) return;
+
+  auto &w        = pack->pmhd->w0;
+  auto &u        = pack->pmhd->u0;
+  auto &size_src = pack->pmb->mb_size;
+  auto &bf   = pack->pmhd->b0;
+  auto &bcc0 = pack->pmhd->bcc0;
+  auto &size = pack->pmb->mb_size; 
+
+  const auto &ind = pm->mb_indcs;
+  const int is=ind.is, ie=ind.ie, js=ind.js, je=ind.je, ks=ind.ks, ke=ind.ke;
+  const int nx1=ind.nx1, nx2=ind.nx2, nx3=ind.nx3;
+
+  // Capture all params as device scalars
+  const Real x0        = P.x0, y0 = P.y0, z0 = P.z0;
+  const Real A0         = P.A0;
+  const Real r_star     = P.r_star;
+  const Real r_interior = P.r_interior;
+  const Real epsilon = P.epsilon;
+  const Real rho0       = P.rho0;
+  const Real p0         = P.p0;
+  const Real delta      = P.delta;
+  const Real theta0     = P.theta0;
+  const Real B0 = P.B0;
+  const Real sigma0 = P.sigma0;
+  const Real beta0 = P.beta0;
+  const Real gamma_ad = pack->pmhd->peos->eos_data.gamma;
+  const Real e_0 = p0 / (gamma_ad - 1.0);
+
+  const Real sigma_max = P.sigma_max;
+  const Real beta_min = P.beta_min;
+  const Real dfloor_original = pw::P.dfloor;
+  const Real pfloor_original = pw::P.pfloor;
+
+  const Real Om        = P.Omega;
+
+  const Real t_cur     = pm->time;
+
+  par_for("monopole_reset_src", DevExeSpace(),
+          0, pack->nmb_thispack-1, ks,ke, js,je, is,ie,
+  KOKKOS_LAMBDA(const int m, const int k, const int j, const int i) {
+            const auto sz = size.d_view(m);
+            Real xc = CellCenterX(i - is, nx1, sz.x1min, sz.x1max);
+            Real yc = CellCenterX(j - js, nx2, sz.x2min, sz.x2max);
+            Real zc = CellCenterX(k - ks, nx3, sz.x3min, sz.x3max);
+
+            Real dx = xc - x0, dy = yc - y0, dz = zc -z0;
+
+            Real rmin = epsilon*r_interior;
+            Real r = sqrt(fmax(dx*dx + dy*dy + dz*dz, rmin*rmin));
+            // assign SNR properties
+            if(r <= r_star){
+                
+            // assign the floor based on the sigma floor, not on the actual density floor
+            // B0 is normalized by the chosen surface density rho_surf and sigma0 
+            Real B_sqr = SQR(pw::F_radial(r, A0, r_star, r_interior));
+            Real dfloor = fmax(dfloor_original, B_sqr/sigma_max);
+            Real pfloor = fmax(pfloor_original, B_sqr/2*beta_min);
+
+            Real d_set = fmax(dfloor, B_sqr/sigma0);
+            Real p_set = fmax(pfloor, B_sqr/2*beta0);
+
+            Real dens = d_set;
+            Real pgas = p_set;
+            Real egas = pgas/(gamma_ad-1.0);
+
+
+            w(m,IDN,k,j,i) = dens;
+            w(m,IVX,k,j,i) = 0.0;
+            w(m,IVY,k,j,i) = 0.0;
+            w(m,IVZ,k,j,i) = 0.0;
+            w(m,IEN,k,j,i) = egas;
+
+            }
+            
+  }); 
+  // Now do a set of loops for the magnetic field quantities
+        // start with x fields
+/*
+    par_for("b_x1_reset_src", DevExeSpace(), 0,(pack->nmb_thispack-1), ks,ke, js,je, is,(ie+1),
+    KOKKOS_LAMBDA(const int m, const int k, const int j, const int ifc) {
+            const auto sz = size.d_view(m);
+            const auto dx1 = (sz.x1max-sz.x1min)/nx1;
+            const auto dx2 = (sz.x2max-sz.x2min)/nx2;
+            const auto dx3 = (sz.x3max-sz.x3min)/nx3;
+
+            const Real xf = sz.x1min + (ifc - is)*dx1; // x faces
+            const Real yc = sz.x2min + ((j - js) +0.5)*dx2; // y centers
+            const Real zc = sz.x3min + ((k - ks) +0.5)*dx3; // z centers
+
+            Real dx = xf - x0, dy = yc - y0, dz = zc -z0;
+
+            Real r = sqrt(dx*dx + dy*dy + dz*dz);
+            
+            Real Ax, Ay, Az, Ay_zP, Ay_zM, Az_yP, Az_yM;
+
+            const Real r_face_reset = r_star + 0.5*sqrt(dx1*dx1 + dx2*dx2 + dx3*dx3); // this is to account for the fact that the cell center could be inside sphere, even if face isn't
+            if (r <= r_face_reset) {
+                A_vec_split_monopole(xf, yc + 0.5*dx2, zc, x0, y0, z0, theta0, delta, A0, r_star, r_interior, Ax, Ay, Az); Az_yP = Az;
+                A_vec_split_monopole(xf, yc - 0.5*dx2, zc, x0, y0, z0, theta0, delta, A0, r_star, r_interior, Ax, Ay, Az); Az_yM = Az;
+                A_vec_split_monopole(xf, yc, zc + 0.5*dx3, x0, y0, z0, theta0, delta, A0, r_star, r_interior, Ax, Ay, Az); Ay_zP = Ay;
+                A_vec_split_monopole(xf, yc, zc - 0.5*dx3, x0, y0, z0, theta0, delta, A0, r_star, r_interior, Ax, Ay, Az); Ay_zM = Ay;
+
+                bf.x1f(m, k, j, ifc) = Bx_from_A(Az_yP, Az_yM, Ay_zP, Ay_zM, dx2, dx3);
+            }
+            
+
+            
+               
+   
+
+        });
+
+        // now y 
+        par_for("b_x2_reset_src", DevExeSpace(), 0,(pack->nmb_thispack-1), ks,ke, js,(je+1), is,ie,
+        KOKKOS_LAMBDA(const int m, const int k, const int jfc, const int i) {
+            const auto sz = size.d_view(m);
+            const auto dx1 = (sz.x1max-sz.x1min)/nx1;
+            const auto dx2 = (sz.x2max-sz.x2min)/nx2;
+            const auto dx3 = (sz.x3max-sz.x3min)/nx3;
+
+            const Real xc = sz.x1min + ((i - is) +0.5)*dx1; // x centers
+            const Real yf = sz.x2min + (jfc - js)*dx2; // y centers
+            const Real zc = sz.x3min + ((k - ks) +0.5)*dx3; // z centers
+
+            Real dx = xc - x0, dy = yf - y0, dz = zc -z0;
+
+            Real r = sqrt(dx*dx + dy*dy + dz*dz);
+
+            Real Ax, Ay, Az, Ax_zP, Ax_zM, Az_xP, Az_xM;
+            const Real r_face_reset = r_star + 0.5*sqrt(dx1*dx1 + dx2*dx2 + dx3*dx3); // this is to account for the fact that the cell center could be inside sphere, even if face isn't
+            if (r <= r_face_reset) {
+
+
+                A_vec_split_monopole(xc + 0.5*dx1, yf, zc, x0, y0, z0, theta0, delta, A0, r_star, r_interior, Ax, Ay, Az); Az_xP = Az;
+                A_vec_split_monopole(xc - 0.5*dx1, yf, zc, x0, y0, z0, theta0, delta, A0, r_star, r_interior, Ax, Ay, Az); Az_xM = Az;
+                A_vec_split_monopole(xc, yf, zc + 0.5*dx3, x0, y0, z0, theta0, delta, A0, r_star, r_interior, Ax, Ay, Az); Ax_zP = Ax;
+                A_vec_split_monopole(xc, yf, zc - 0.5*dx3, x0, y0, z0, theta0, delta, A0, r_star, r_interior, Ax, Ay, Az); Ax_zM = Ax;
+
+                bf.x2f(m, k, jfc, i) = By_from_A(Ax_zP, Ax_zM, Az_xP, Az_xM, dx3, dx1);
+            }
+               
+            
+        
+
+        });
+
+        // now z 
+        par_for("pgen_b_x3_reset_src", DevExeSpace(), 0,(pack->nmb_thispack-1), ks,(ke+1), js,je, is,ie,
+        KOKKOS_LAMBDA(const int m, const int kfc, const int j, const int i) {
+            const auto sz = size.d_view(m);
+            const auto dx1 = (sz.x1max-sz.x1min)/nx1;
+            const auto dx2 = (sz.x2max-sz.x2min)/nx2;
+            const auto dx3 = (sz.x3max-sz.x3min)/nx3;
+
+            const Real xc = sz.x1min + ((i - is) +0.5)*dx1; // x centers
+            const Real yc = sz.x2min + ((j - js) +0.5)*dx2; // y centers
+            const Real zf = sz.x3min + ((kfc - ks))*dx3; // z centers
+
+            Real dx = xc - x0, dy = yc - y0, dz = zf -z0;
+
+            Real r = sqrt(dx*dx + dy*dy + dz*dz);
+
+
+
+            Real Ax, Ay, Az, Ax_yP, Ax_yM, Ay_xP, Ay_xM;
+
+            const Real r_face_reset = r_star + 0.5*sqrt(dx1*dx1 + dx2*dx2 + dx3*dx3);
+            if (r <= r_face_reset) { 
+
+                A_vec_split_monopole(xc + 0.5*dx1, yc, zf, x0, y0, z0, theta0, delta, A0, r_star, r_interior, Ax, Ay, Az); Ay_xP = Ay;
+                A_vec_split_monopole(xc - 0.5*dx1, yc, zf, x0, y0, z0, theta0, delta, A0, r_star, r_interior, Ax, Ay, Az); Ay_xM = Ay;
+                A_vec_split_monopole(xc, yc + 0.5*dx2, zf , x0, y0, z0, theta0, delta, A0, r_star, r_interior, Ax, Ay, Az); Ax_yP = Ax;
+                A_vec_split_monopole(xc, yc - 0.5*dx2, zf , x0, y0, z0, theta0, delta, A0, r_star, r_interior, Ax, Ay, Az); Ax_yM = Ax;
+
+                bf.x3f(m, kfc, j, i)  = Bz_from_A(Ay_xP, Ay_xM, Ax_yP, Ax_yM, dx1, dx2);
+            }   
+            
+        
+
+        });
+
+        */
+
+        // ---- Reset cell-centered B and conserved vars, INSIDE THE STAR ONLY ----
+        // Must run after the three face-field loops.  Cannot use the array-wide
+        // PrimToCons(): u0 already carries this stage's flux divergence (see the note
+        // on MHD::MHDSrcTerms), so an ungated call would discard the update over the
+        // whole block and freeze the fluid everywhere.
+        par_for("monopole_reset_cons", DevExeSpace(),
+                0, pack->nmb_thispack-1, ks,ke, js,je, is,ie,
+            KOKKOS_LAMBDA(const int m, const int k, const int j, const int i) {
+            const auto sz = size.d_view(m);
+            Real xc = CellCenterX(i - is, nx1, sz.x1min, sz.x1max);
+            Real yc = CellCenterX(j - js, nx2, sz.x2min, sz.x2max);
+            Real zc = CellCenterX(k - ks, nx3, sz.x3min, sz.x3max);
+
+            Real dx = xc - x0, dy = yc - y0, dz = zc - z0;
+            Real r = sqrt(dx*dx + dy*dy + dz*dz);
+            if (r > r_star) return;          // leave the exterior entirely to the solver
+
+            // cell-centered B from the just-reset face fields
+            //Real bx = 0.5*(bf.x1f(m,k,j,i) + bf.x1f(m,k,j,i+1));
+            //Real by = 0.5*(bf.x2f(m,k,j,i) + bf.x2f(m,k,j+1,i));
+            //Real bz = 0.5*(bf.x3f(m,k,j,i) + bf.x3f(m,k+1,j,i));
+            //bcc0(m,IBX,k,j,i) = bx;
+            //bcc0(m,IBY,k,j,i) = by;
+            //bcc0(m,IBZ,k,j,i) = bz;
+
+            // read back the primitives the fluid loop just pinned, so there is a single
+            // source of truth for the interior state
+            MHDPrim1D w_cell;
+            w_cell.d  = w(m,IDN,k,j,i);
+            w_cell.vx = w(m,IVX,k,j,i);
+            w_cell.vy = w(m,IVY,k,j,i);
+            w_cell.vz = w(m,IVZ,k,j,i);
+            w_cell.e  = w(m,IEN,k,j,i);
+            w_cell.bx = bcc0(m,IBX,k,j,i);
+            w_cell.by = bcc0(m,IBY,k,j,i);
+            w_cell.bz = bcc0(m,IBZ,k,j,i);
+
+            HydCons1D u_cell;
+            SingleP2C_IdealSRMHD(w_cell, gamma_ad, u_cell);
+
+            u(m,IDN,k,j,i) = u_cell.d;
+            u(m,IM1,k,j,i) = u_cell.mx;
+            u(m,IM2,k,j,i) = u_cell.my;
+            u(m,IM3,k,j,i) = u_cell.mz;
+            u(m,IEN,k,j,i) = u_cell.e;   // SR: E - D, handled inside SingleP2C
+        });
+
+  
+    }
+
+
+
+
+
 } //namespace pw
 
 // define the problem generator
 void ProblemGenerator::UserProblem(ParameterInput *pin, const bool restart){
+
+    user_srcs = pin->GetOrAddBoolean("problem", "user_srcs", true);
 
     // read the parameters from inside the input file
 
     // neutron star paremeters
     pw::P.r_star = pin->GetOrAddReal("problem", "r_star", 10.0);
     pw::P.Omega = pin->GetOrAddReal("problem", "Omega", 0.0);
-    pw::P.rho0 = pin->GetOrAddReal("problem", "rho0", 1.0);
-    pw::P.p0 = pin->GetOrAddReal("problem", "p0", 1.e-4);
-
+    
     // magnetosphere
     pw::P.delta = pin->GetOrAddReal("problem", "delta", 1.0);
     pw::P.sigma0 = pin->GetOrAddReal("problem", "sigma0", 10.0);
-    pw::P.A0 = pw::P.r_star*sqrt(pw::P.rho0*pw::P.sigma0);
+    pw::P.beta0      = pin->GetOrAddReal("problem", "beta0",  1.0e-03);
+    pw::P.rho_surf = pin->GetOrAddReal("problem", "rho_surf", 1.0); // set the density at the surface of neutron star
+    pw::P.A0 = pw::P.r_star*sqrt(pw::P.rho_surf*pw::P.sigma0);
+    pw::P.B0 = sqrt(pw::P.rho_surf*pw::P.sigma0);
 
     //Regularization
     pw::P.theta0 = pin->GetOrAddReal("problem", "theta0", 0.1);
     pw::P.frac_star = pin->GetOrAddReal("problem", "frac_star", 0.5);
+    pw::P.epsilon = pin->GetOrAddReal("problem", "epsilon", 1e-8);
+    pw::P.theta_int = pin->GetOrAddReal("problem", "theta_int", 0.5);
     pw::P.r_interior = pw::P.frac_star * pw::P.r_star;
 
     //geometry
     pw::P.x0 = pin->GetOrAddReal("problem", "x0", 0.0);
     pw::P.y0 = pin->GetOrAddReal("problem", "y0", 0.0);
     pw::P.z0 = pin->GetOrAddReal("problem", "z0", 0.0);
+
+    // mhd floors
+    pw::P.dfloor        = pin->GetOrAddReal("mhd", "dfloor",    1.0e-08);
+    pw::P.pfloor        = pin->GetOrAddReal("mhd", "pfloor",    1.0e-15);
+    pw::P.beta_min      = pin->GetOrAddReal("mhd", "beta_min",  1.0e-05);
+    pw::P.sigma_max     = pin->GetOrAddReal("mhd", "sigma_max", 1000.0);
+
+    // SNR parameters 
+    // right now these are not needed, will become relevant when SNR is created
+    pw::P.rho0 = pin->GetOrAddReal("problem", "rho0", 1.0);
+    pw::P.p0 = pin->GetOrAddReal("problem", "p0", 1.e-4);
 
     
 
@@ -179,15 +489,30 @@ void ProblemGenerator::UserProblem(ParameterInput *pin, const bool restart){
         const Real x0 = pw::P.x0, y0 = pw::P.y0, z0 = pw::P.z0;
         const Real rho0 = pw::P.rho0; 
         const Real p0 = pw::P.p0;
+        const Real e_0 = p0 / (gamma_ad - 1.0);
+
         const Real r_star = pw::P.r_star;
         
-        const Real e_0 = p0 / (gamma_ad - 1.0);
+        
+        
 
         const Real theta0 = pw::P.theta0;
         const Real sigma0 = pw::P.sigma0;
+        const Real beta0 = pw::P.beta0;
         const Real A0 = pw::P.A0;
         const Real delta = pw::P.delta;
+        const Real B0 = pw::P.B0;
+        const Real rho_surf = pw::P.rho_surf;
         const Real r_interior = pw::P.r_interior;
+        const Real epsilon = pw::P.epsilon;
+        const Real theta_int = pw::P.theta_int;
+
+        const Real sigma_max = pw::P.sigma_max;
+        const Real beta_min = pw::P.beta_min;
+        const Real dfloor_original = pw::P.dfloor;
+        const Real pfloor_original = pw::P.pfloor;
+        
+        
 
         
         
@@ -200,17 +525,30 @@ void ProblemGenerator::UserProblem(ParameterInput *pin, const bool restart){
             Real zc = CellCenterX(k - ks, nx3, sz.x3min, sz.x3max);
 
             Real dx = xc - x0, dy = yc - y0, dz = zc -z0;
-
-            Real r = sqrt(dx*dx + dy*dy + dz*dz);
+            Real rmin = epsilon*r_interior;
+            Real r = sqrt(fmax(dx*dx + dy*dy + dz*dz, rmin*rmin));
             // assign SNR properties
-            if(r >= r_star){
 
-            }
-            w0(m,IDN,k,j,i) = rho0;
+            // assign the floor based on the sigma floor, not on the actual density floor
+            // B0 is normalized by the chosen surface density rho_surf and sigma0 
+            //Real emag_star = SQR(B0*r_star*r_star);
+            Real B_sqr = SQR(pw::F_radial(r, A0, r_star, r_interior));
+            Real dfloor = fmax(dfloor_original, B_sqr/sigma_max);
+            Real pfloor = fmax(pfloor_original, B_sqr/2*beta_min);
+
+            Real d_set = fmax(dfloor, B_sqr/sigma0);
+            Real p_set = fmax(pfloor, B_sqr/2*beta0);
+
+            Real dens = d_set;
+            Real pgas = p_set;
+            Real egas = pgas/(gamma_ad-1.0);
+
+
+            w0(m,IDN,k,j,i) = dens;
             w0(m,IVX,k,j,i) = 0.0;
             w0(m,IVY,k,j,i) = 0.0;
             w0(m,IVZ,k,j,i) = 0.0;
-            w0(m,IEN,k,j,i) = e_0;
+            w0(m,IEN,k,j,i) = egas;
 
 
         
@@ -236,10 +574,10 @@ void ProblemGenerator::UserProblem(ParameterInput *pin, const bool restart){
             }
             Real Ax, Ay, Az, Ay_zP, Ay_zM, Az_yP, Az_yM;
 
-            pw::A_vec_split_monopole(xf, yc + 0.5*dx2, zc, x0, y0, z0, theta0, delta, A0, r_star, r_interior, Ax, Ay, Az); Az_yP = Az;
-            pw::A_vec_split_monopole(xf, yc - 0.5*dx2, zc, x0, y0, z0, theta0, delta, A0, r_star, r_interior, Ax, Ay, Az); Az_yM = Az;
-            pw::A_vec_split_monopole(xf, yc, zc + 0.5*dx3, x0, y0, z0, theta0, delta, A0, r_star, r_interior, Ax, Ay, Az); Ay_zP = Ay;
-            pw::A_vec_split_monopole(xf, yc, zc - 0.5*dx3, x0, y0, z0, theta0, delta, A0, r_star, r_interior, Ax, Ay, Az); Ay_zM = Ay;
+            pw::A_vec_split_monopole(xf, yc + 0.5*dx2, zc, x0, y0, z0, theta0, delta, A0, r_star, r_interior, epsilon, theta_int, Ax, Ay, Az); Az_yP = Az;
+            pw::A_vec_split_monopole(xf, yc - 0.5*dx2, zc, x0, y0, z0, theta0, delta, A0, r_star, r_interior, epsilon, theta_int, Ax, Ay, Az); Az_yM = Az;
+            pw::A_vec_split_monopole(xf, yc, zc + 0.5*dx3, x0, y0, z0, theta0, delta, A0, r_star, r_interior, epsilon, theta_int, Ax, Ay, Az); Ay_zP = Ay;
+            pw::A_vec_split_monopole(xf, yc, zc - 0.5*dx3, x0, y0, z0, theta0, delta, A0, r_star, r_interior, epsilon, theta_int, Ax, Ay, Az); Ay_zM = Ay;
 
             bf.x1f(m, k, j, ifc) = pw::Bx_from_A(Az_yP, Az_yM, Ay_zP, Ay_zM, dx2, dx3);
                
@@ -268,10 +606,10 @@ void ProblemGenerator::UserProblem(ParameterInput *pin, const bool restart){
 
             Real Ax, Ay, Az, Ax_zP, Ax_zM, Az_xP, Az_xM;
 
-            pw::A_vec_split_monopole(xc + 0.5*dx1, yf, zc, x0, y0, z0, theta0, delta, A0, r_star, r_interior, Ax, Ay, Az); Az_xP = Az;
-            pw::A_vec_split_monopole(xc - 0.5*dx1, yf, zc, x0, y0, z0, theta0, delta, A0, r_star, r_interior, Ax, Ay, Az); Az_xM = Az;
-            pw::A_vec_split_monopole(xc, yf, zc + 0.5*dx3, x0, y0, z0, theta0, delta, A0, r_star, r_interior, Ax, Ay, Az); Ax_zP = Ax;
-            pw::A_vec_split_monopole(xc, yf, zc - 0.5*dx3, x0, y0, z0, theta0, delta, A0, r_star, r_interior, Ax, Ay, Az); Ax_zM = Ax;
+            pw::A_vec_split_monopole(xc + 0.5*dx1, yf, zc, x0, y0, z0, theta0, delta, A0, r_star, r_interior, epsilon, theta_int, Ax, Ay, Az); Az_xP = Az;
+            pw::A_vec_split_monopole(xc - 0.5*dx1, yf, zc, x0, y0, z0, theta0, delta, A0, r_star, r_interior, epsilon, theta_int, Ax, Ay, Az); Az_xM = Az;
+            pw::A_vec_split_monopole(xc, yf, zc + 0.5*dx3, x0, y0, z0, theta0, delta, A0, r_star, r_interior, epsilon, theta_int, Ax, Ay, Az); Ax_zP = Ax;
+            pw::A_vec_split_monopole(xc, yf, zc - 0.5*dx3, x0, y0, z0, theta0, delta, A0, r_star, r_interior, epsilon, theta_int, Ax, Ay, Az); Ax_zM = Ax;
 
             bf.x2f(m, k, jfc, i) = pw::By_from_A(Ax_zP, Ax_zM, Az_xP, Az_xM, dx3, dx1);
             
@@ -301,10 +639,10 @@ void ProblemGenerator::UserProblem(ParameterInput *pin, const bool restart){
 
             Real Ax, Ay, Az, Ax_yP, Ax_yM, Ay_xP, Ay_xM;
 
-            pw::A_vec_split_monopole(xc + 0.5*dx1, yc, zf, x0, y0, z0, theta0, delta, A0, r_star, r_interior, Ax, Ay, Az); Ay_xP = Ay;
-            pw::A_vec_split_monopole(xc - 0.5*dx1, yc, zf, x0, y0, z0, theta0, delta, A0, r_star, r_interior, Ax, Ay, Az); Ay_xM = Ay;
-            pw::A_vec_split_monopole(xc, yc + 0.5*dx2, zf , x0, y0, z0, theta0, delta, A0, r_star, r_interior, Ax, Ay, Az); Ax_yP = Ax;
-            pw::A_vec_split_monopole(xc, yc - 0.5*dx2, zf , x0, y0, z0, theta0, delta, A0, r_star, r_interior, Ax, Ay, Az); Ax_yM = Ax;
+            pw::A_vec_split_monopole(xc + 0.5*dx1, yc, zf, x0, y0, z0, theta0, delta, A0, r_star, r_interior, epsilon, theta_int, Ax, Ay, Az); Ay_xP = Ay;
+            pw::A_vec_split_monopole(xc - 0.5*dx1, yc, zf, x0, y0, z0, theta0, delta, A0, r_star, r_interior, epsilon, theta_int, Ax, Ay, Az); Ay_xM = Ay;
+            pw::A_vec_split_monopole(xc, yc + 0.5*dx2, zf , x0, y0, z0, theta0, delta, A0, r_star, r_interior, epsilon, theta_int, Ax, Ay, Az); Ax_yP = Ax;
+            pw::A_vec_split_monopole(xc, yc - 0.5*dx2, zf , x0, y0, z0, theta0, delta, A0, r_star, r_interior, epsilon, theta_int, Ax, Ay, Az); Ax_yM = Ax;
 
             bf.x3f(m, kfc, j, i)  = pw::Bz_from_A(Ay_xP, Ay_xM, Ax_yP, Ax_yM, dx1, dx2);
                
@@ -326,4 +664,6 @@ void ProblemGenerator::UserProblem(ParameterInput *pin, const bool restart){
 
 
     }
+
+    if (user_srcs) user_srcs_func = &pw::Source;
 } 
