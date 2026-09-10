@@ -38,6 +38,8 @@
 //========================================================================================
 
 #include <cmath>
+#include <cstdlib>
+#include <iostream>
 #include "athena.hpp"
 #include "globals.hpp"
 #include "parameter_input.hpp"
@@ -57,6 +59,7 @@ struct Params {
     // Pulsar 
     Real r_star; 
     Real Omega;
+    Real t_ramp;
 
     // Magnetosphere
     Real A0;
@@ -74,6 +77,7 @@ struct Params {
     Real theta_int;
 
     //track floors
+    Real gamma_max;
     Real sigma_max;
     Real beta_min;
     Real dfloor;
@@ -142,29 +146,6 @@ void A_vec_split_monopole(Real x, Real y, Real z,
     const Real A_coeff = F * g;
     Ax = -A_coeff* y_r;
     Ay = A_coeff* x_r;
-    // ignore what is below.. this is very old
-    //if (r > r_interior){
-    //    if (theta < (M_PI-delta)/2.0){
-    //        Real A_phi = A0*(r_star/fmax(r, r_interior))/(fmax(r+fabs(z_r), r_interior));
-    //        Ax = -A_phi*y_r;
-    //       Ay =  A_phi*x_r;
-    //    } 
-    //    else if (theta >= (M_PI-delta)/2.0 && theta < (M_PI+delta)/2.0 ){
-    //        Real A_phi = -2*A0/delta *(r_star/(fmax(r, r_interior)))*(1.0-((theta-M_PI/2.0)*costheta+sin((M_PI-delta)/2.0)+delta/2.0)/sintheta);
-    //        Ax = -A_phi*y_r/r_cyl;
-    //        Ay =  A_phi*x_r/r_cyl;
-    //    } 
-    //    else if (theta >= (M_PI+delta)/2.0){
-    //        Real A_phi = A0*(r_star/fmax(r, r_interior))/(fmax(r+fabs(z_r), r_interior));
-    //        Ax = -A_phi*y_r;
-    //        Ay =  A_phi*x_r;
-    //    }
-    //} 
-    //else {
-    //    Real A_phi = A0*(r_star/r_interior)/(r_interior);
-    //    Ax = -A_phi*y_r;
-    //    Ay =  A_phi*x_r;
-    //}
     Az = 0.0;
     }
 
@@ -215,12 +196,16 @@ void Source(Mesh *pm, const Real dt) {
 
   const Real sigma_max = P.sigma_max;
   const Real beta_min = P.beta_min;
-  const Real dfloor_original = pw::P.dfloor;
-  const Real pfloor_original = pw::P.pfloor;
+  const Real dfloor_original = P.dfloor;
+  const Real pfloor_original = P.pfloor;
 
   const Real Om        = P.Omega;
-
+  const Real t_ramp    = P.t_ramp;
   const Real t_cur     = pm->time;
+  const Real gamma_max = P.gamma_max;
+
+  const Real s = (t_ramp > 0.0) ? fmin((t_cur/t_ramp), 1.0) : 1.0; 
+  const Real Om_t = Om * s*s*(3.0-2.0*s);
 
   par_for("monopole_reset_src", DevExeSpace(),
           0, pack->nmb_thispack-1, ks,ke, js,je, is,ie,
@@ -237,136 +222,34 @@ void Source(Mesh *pm, const Real dt) {
             // assign SNR properties
             if(r <= r_star){
                 
-            // assign the floor based on the sigma floor, not on the actual density floor
-            // B0 is normalized by the chosen surface density rho_surf and sigma0 
-            Real B_sqr = SQR(pw::F_radial(r, A0, r_star, r_interior));
-            Real dfloor = fmax(dfloor_original, B_sqr/sigma_max);
-            Real pfloor = fmax(pfloor_original, B_sqr/2*beta_min);
+                // assign the floor based on the sigma floor, not on the actual density floor
+                // B0 is normalized by the chosen surface density rho_surf and sigma0 
+                Real B_sqr = SQR(pw::F_radial(r, A0, r_star, r_interior));
+                Real dfloor = fmax(dfloor_original, B_sqr/sigma_max);
+                Real pfloor = fmax(pfloor_original, B_sqr/2*beta_min);
 
-            Real d_set = fmax(dfloor, B_sqr/sigma0);
-            Real p_set = fmax(pfloor, B_sqr/2*beta0);
+                Real d_set = fmax(dfloor, B_sqr/sigma0);
+                Real p_set = fmax(pfloor, B_sqr/2*beta0);
 
-            Real dens = d_set;
-            Real pgas = p_set;
-            Real egas = pgas/(gamma_ad-1.0);
+                Real dens = d_set;
+                Real pgas = p_set;
+                Real egas = pgas/(gamma_ad-1.0);
+                
+                // add in the rigid rotation of the star
+                
+                const Real r_cyl_sq = dx*dx+dy*dy;
+                const Real u0_rot = 1.0/sqrt(fmax(1.0-r_cyl_sq*Om_t*Om_t, 1.0/(gamma_max*gamma_max))); // lorentz factor associated with rotation
 
-
-            w(m,IDN,k,j,i) = dens;
-            w(m,IVX,k,j,i) = 0.0;
-            w(m,IVY,k,j,i) = 0.0;
-            w(m,IVZ,k,j,i) = 0.0;
-            w(m,IEN,k,j,i) = egas;
+                w(m,IDN,k,j,i) = dens;
+                w(m,IVX,k,j,i) = -Om_t*dy*u0_rot;
+                w(m,IVY,k,j,i) = Om_t*dx*u0_rot;
+                w(m,IVZ,k,j,i) = 0.0;
+                w(m,IEN,k,j,i) = egas;
 
             }
             
   }); 
-  // Now do a set of loops for the magnetic field quantities
-        // start with x fields
-/*
-    par_for("b_x1_reset_src", DevExeSpace(), 0,(pack->nmb_thispack-1), ks,ke, js,je, is,(ie+1),
-    KOKKOS_LAMBDA(const int m, const int k, const int j, const int ifc) {
-            const auto sz = size.d_view(m);
-            const auto dx1 = (sz.x1max-sz.x1min)/nx1;
-            const auto dx2 = (sz.x2max-sz.x2min)/nx2;
-            const auto dx3 = (sz.x3max-sz.x3min)/nx3;
-
-            const Real xf = sz.x1min + (ifc - is)*dx1; // x faces
-            const Real yc = sz.x2min + ((j - js) +0.5)*dx2; // y centers
-            const Real zc = sz.x3min + ((k - ks) +0.5)*dx3; // z centers
-
-            Real dx = xf - x0, dy = yc - y0, dz = zc -z0;
-
-            Real r = sqrt(dx*dx + dy*dy + dz*dz);
-            
-            Real Ax, Ay, Az, Ay_zP, Ay_zM, Az_yP, Az_yM;
-
-            const Real r_face_reset = r_star + 0.5*sqrt(dx1*dx1 + dx2*dx2 + dx3*dx3); // this is to account for the fact that the cell center could be inside sphere, even if face isn't
-            if (r <= r_face_reset) {
-                A_vec_split_monopole(xf, yc + 0.5*dx2, zc, x0, y0, z0, theta0, delta, A0, r_star, r_interior, Ax, Ay, Az); Az_yP = Az;
-                A_vec_split_monopole(xf, yc - 0.5*dx2, zc, x0, y0, z0, theta0, delta, A0, r_star, r_interior, Ax, Ay, Az); Az_yM = Az;
-                A_vec_split_monopole(xf, yc, zc + 0.5*dx3, x0, y0, z0, theta0, delta, A0, r_star, r_interior, Ax, Ay, Az); Ay_zP = Ay;
-                A_vec_split_monopole(xf, yc, zc - 0.5*dx3, x0, y0, z0, theta0, delta, A0, r_star, r_interior, Ax, Ay, Az); Ay_zM = Ay;
-
-                bf.x1f(m, k, j, ifc) = Bx_from_A(Az_yP, Az_yM, Ay_zP, Ay_zM, dx2, dx3);
-            }
-            
-
-            
-               
-   
-
-        });
-
-        // now y 
-        par_for("b_x2_reset_src", DevExeSpace(), 0,(pack->nmb_thispack-1), ks,ke, js,(je+1), is,ie,
-        KOKKOS_LAMBDA(const int m, const int k, const int jfc, const int i) {
-            const auto sz = size.d_view(m);
-            const auto dx1 = (sz.x1max-sz.x1min)/nx1;
-            const auto dx2 = (sz.x2max-sz.x2min)/nx2;
-            const auto dx3 = (sz.x3max-sz.x3min)/nx3;
-
-            const Real xc = sz.x1min + ((i - is) +0.5)*dx1; // x centers
-            const Real yf = sz.x2min + (jfc - js)*dx2; // y centers
-            const Real zc = sz.x3min + ((k - ks) +0.5)*dx3; // z centers
-
-            Real dx = xc - x0, dy = yf - y0, dz = zc -z0;
-
-            Real r = sqrt(dx*dx + dy*dy + dz*dz);
-
-            Real Ax, Ay, Az, Ax_zP, Ax_zM, Az_xP, Az_xM;
-            const Real r_face_reset = r_star + 0.5*sqrt(dx1*dx1 + dx2*dx2 + dx3*dx3); // this is to account for the fact that the cell center could be inside sphere, even if face isn't
-            if (r <= r_face_reset) {
-
-
-                A_vec_split_monopole(xc + 0.5*dx1, yf, zc, x0, y0, z0, theta0, delta, A0, r_star, r_interior, Ax, Ay, Az); Az_xP = Az;
-                A_vec_split_monopole(xc - 0.5*dx1, yf, zc, x0, y0, z0, theta0, delta, A0, r_star, r_interior, Ax, Ay, Az); Az_xM = Az;
-                A_vec_split_monopole(xc, yf, zc + 0.5*dx3, x0, y0, z0, theta0, delta, A0, r_star, r_interior, Ax, Ay, Az); Ax_zP = Ax;
-                A_vec_split_monopole(xc, yf, zc - 0.5*dx3, x0, y0, z0, theta0, delta, A0, r_star, r_interior, Ax, Ay, Az); Ax_zM = Ax;
-
-                bf.x2f(m, k, jfc, i) = By_from_A(Ax_zP, Ax_zM, Az_xP, Az_xM, dx3, dx1);
-            }
-               
-            
-        
-
-        });
-
-        // now z 
-        par_for("pgen_b_x3_reset_src", DevExeSpace(), 0,(pack->nmb_thispack-1), ks,(ke+1), js,je, is,ie,
-        KOKKOS_LAMBDA(const int m, const int kfc, const int j, const int i) {
-            const auto sz = size.d_view(m);
-            const auto dx1 = (sz.x1max-sz.x1min)/nx1;
-            const auto dx2 = (sz.x2max-sz.x2min)/nx2;
-            const auto dx3 = (sz.x3max-sz.x3min)/nx3;
-
-            const Real xc = sz.x1min + ((i - is) +0.5)*dx1; // x centers
-            const Real yc = sz.x2min + ((j - js) +0.5)*dx2; // y centers
-            const Real zf = sz.x3min + ((kfc - ks))*dx3; // z centers
-
-            Real dx = xc - x0, dy = yc - y0, dz = zf -z0;
-
-            Real r = sqrt(dx*dx + dy*dy + dz*dz);
-
-
-
-            Real Ax, Ay, Az, Ax_yP, Ax_yM, Ay_xP, Ay_xM;
-
-            const Real r_face_reset = r_star + 0.5*sqrt(dx1*dx1 + dx2*dx2 + dx3*dx3);
-            if (r <= r_face_reset) { 
-
-                A_vec_split_monopole(xc + 0.5*dx1, yc, zf, x0, y0, z0, theta0, delta, A0, r_star, r_interior, Ax, Ay, Az); Ay_xP = Ay;
-                A_vec_split_monopole(xc - 0.5*dx1, yc, zf, x0, y0, z0, theta0, delta, A0, r_star, r_interior, Ax, Ay, Az); Ay_xM = Ay;
-                A_vec_split_monopole(xc, yc + 0.5*dx2, zf , x0, y0, z0, theta0, delta, A0, r_star, r_interior, Ax, Ay, Az); Ax_yP = Ax;
-                A_vec_split_monopole(xc, yc - 0.5*dx2, zf , x0, y0, z0, theta0, delta, A0, r_star, r_interior, Ax, Ay, Az); Ax_yM = Ax;
-
-                bf.x3f(m, kfc, j, i)  = Bz_from_A(Ay_xP, Ay_xM, Ax_yP, Ax_yM, dx1, dx2);
-            }   
-            
-        
-
-        });
-
-        */
+  
 
         // ---- Reset cell-centered B and conserved vars, INSIDE THE STAR ONLY ----
         // Must run after the three face-field loops.  Cannot use the array-wide
@@ -434,7 +317,15 @@ void ProblemGenerator::UserProblem(ParameterInput *pin, const bool restart){
     // neutron star paremeters
     pw::P.r_star = pin->GetOrAddReal("problem", "r_star", 10.0);
     pw::P.Omega = pin->GetOrAddReal("problem", "Omega", 0.0);
-    
+    pw::P.t_ramp = pin->GetOrAddReal("problem", "t_ramp", 20.0);
+
+    if (pw::P.Omega*pw::P.r_star >= 1.0) {
+        std::cout << "### FATAL ERROR in " << __FILE__ << " at line " << __LINE__ << std::endl
+            << "Omega*r_star = " << pw::P.Omega*pw::P.r_star
+            << " >= 1: light cylinder is inside the stellar surface" << std::endl;
+        std::exit(EXIT_FAILURE);
+    }
+
     // magnetosphere
     pw::P.delta = pin->GetOrAddReal("problem", "delta", 1.0);
     pw::P.sigma0 = pin->GetOrAddReal("problem", "sigma0", 10.0);
@@ -460,6 +351,7 @@ void ProblemGenerator::UserProblem(ParameterInput *pin, const bool restart){
     pw::P.pfloor        = pin->GetOrAddReal("mhd", "pfloor",    1.0e-15);
     pw::P.beta_min      = pin->GetOrAddReal("mhd", "beta_min",  1.0e-05);
     pw::P.sigma_max     = pin->GetOrAddReal("mhd", "sigma_max", 1000.0);
+    pw::P.gamma_max     = pin->GetOrAddReal("mhd", "gamma_max", 1000.0);
 
     // SNR parameters 
     // right now these are not needed, will become relevant when SNR is created
