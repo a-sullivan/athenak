@@ -438,6 +438,13 @@ TaskStatus MHD::EField(Driver *pdrive, int stage) {
       psbox_b->SourceTermsFC(b0, efld);
     }
   }
+
+  // Add user Efield source terms // added by Andrew 2026-09-10
+  if (pmy_pack->pmesh->pgen->user_esrcs) {
+    pmy_pack->pmesh->pgen->esrc_stage_wgt =
+        pdrive->gam1[stage-1] / pdrive->beta[stage-1];
+    (pmy_pack->pmesh->pgen->user_esrcs_func)(pmy_pack->pmesh);
+  }
   return TaskStatus::complete;
 }
 

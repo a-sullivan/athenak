@@ -301,6 +301,60 @@ void Source(Mesh *pm, const Real dt) {
   
     }
 
+    void EfieldMask(Mesh *pm){
+        auto *pack = pm->pmb_pack;
+        if (!pack || !pack->pmhd) return;
+
+        const auto &ind = pm->mb_indcs;
+        const int is=ind.is, ie=ind.ie, js=ind.js, je=ind.je, ks=ind.ks, ke=ind.ke;
+        const int nx1=ind.nx1, nx2=ind.nx2, nx3=ind.nx3;
+
+        auto &size = pack->pmb->mb_size;
+        auto e1 = pack->pmhd->efld.x1e;
+        auto e2 = pack->pmhd->efld.x2e;
+        auto e3 = pack->pmhd->efld.x3e;
+        auto &b0 = pack->pmhd->b0;
+
+        const Real x0=P.x0, y0=P.y0, z0=P.z0, r_star=P.r_star;
+        const Real s = (t_ramp > 0.0) ? fmin((t_cur/t_ramp), 1.0) : 1.0; 
+        const Real Om_t = Om * s*s*(3.0-2.0*s);
+
+        par_for("emf_e1", DevExeSpace(), 0,pack->nmb_thispack-1, ks,ke+1, js,je+1, is,ie,
+            KOKKOS_LAMBDA(int m, int k, int j, int i) {
+                const auto sz = size.d_view(m);
+                const Real dx = CellCenterX(i-is, nx1, sz.x1min, sz.x1max) - x0;
+                const Real dy = LeftEdgeX  (j-js, nx2, sz.x2min, sz.x2max) - y0;
+                const Real dz = LeftEdgeX  (k-ks, nx3, sz.x3min, sz.x3max) - z0;
+                if (sqrt(dx*dx + dy*dy + dz*dz) > r_star) return;
+                const Real bz = 0.5*(b0.x3f(m,k,j-1,i) + b0.x3f(m,k,j,i));
+                e1(m,k,j,i) = -Om_t*dx*bz;
+        });
+
+        par_for("emf_e2", DevExeSpace(), 0,pack->nmb_thispack-1, ks,ke+1, js,je+1, is,ie,
+            KOKKOS_LAMBDA(int m, int k, int j, int i) {
+                const auto sz = size.d_view(m);
+                const Real dx = CellCenterX(i-is, nx1, sz.x1min, sz.x1max) - x0;
+                const Real dy = LeftEdgeX  (j-js, nx2, sz.x2min, sz.x2max) - y0;
+                const Real dz = LeftEdgeX  (k-ks, nx3, sz.x3min, sz.x3max) - z0;
+                if (sqrt(dx*dx + dy*dy + dz*dz) > r_star) return;
+                const Real bz = 0.5*(b0.x3f(m,k,j,i-1) + b0.x3f(m,k,j,i));
+                e2(m,k,j,i) = -Om_t*dy*bz;
+        });
+
+        par_for("emf_e3", DevExeSpace(), 0,pack->nmb_thispack-1, ks,ke+1, js,je+1, is,ie,
+            KOKKOS_LAMBDA(int m, int k, int j, int i) {
+                const auto sz = size.d_view(m);
+                const Real dx = CellCenterX(i-is, nx1, sz.x1min, sz.x1max) - x0;
+                const Real dy = LeftEdgeX  (j-js, nx2, sz.x2min, sz.x2max) - y0;
+                const Real dz = LeftEdgeX  (k-ks, nx3, sz.x3min, sz.x3max) - z0;
+                if (sqrt(dx*dx + dy*dy + dz*dz) > r_star) return;
+                const Real bx = 0.5*(b0.x1f(m,k,j-1,i) + b0.x2f(m,k,j,i));
+                const Real by = 0.5*(b0.x2f(m,k,j,i-1) + b0.x2f(m,k,j,i));
+                e3(m,k,j,i) = Om_t*(dy*by+x*bx);
+        });
+
+    }
+
 
 
 
@@ -311,6 +365,7 @@ void Source(Mesh *pm, const Real dt) {
 void ProblemGenerator::UserProblem(ParameterInput *pin, const bool restart){
 
     user_srcs = pin->GetOrAddBoolean("problem", "user_srcs", true);
+    user_esrcs = pin->GetOrAddBoolean("problem","user_esrcs",false); 
 
     // read the parameters from inside the input file
 
@@ -558,4 +613,6 @@ void ProblemGenerator::UserProblem(ParameterInput *pin, const bool restart){
     }
 
     if (user_srcs) user_srcs_func = &pw::Source;
+
+    if (user_esrcs) user_ercs_func = &pw::EfieldMask;
 } 

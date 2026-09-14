@@ -18,6 +18,7 @@
 using ProblemFinalizeFnPtr = void (*)(ParameterInput *pin, Mesh *pm);
 using UserBoundaryFnPtr = void (*)(Mesh* pm);
 using UserSrctermFnPtr = void (*)(Mesh* pm, const Real bdt);
+using UserESrctermFnPtr = void (*)(Mesh* pm);
 using UserRefinementFnPtr = void (*)(MeshBlockPack* pmbp);
 using UserHistoryFnPtr = void (*)(HistoryData *pdata, Mesh *pm);
 
@@ -39,6 +40,10 @@ class ProblemGenerator {
   // true if user srcterms are specified
   bool user_srcs;
 
+  // add in user e-field source
+
+  bool user_esrcs;
+
   // true if user history outputs are specified
   bool user_hist;
 
@@ -51,8 +56,14 @@ class ProblemGenerator {
   // function pointer for user-enrolled BCs.  Called in ApplyPhysicalBCs in task list
   UserBoundaryFnPtr user_bcs_func=nullptr;
   UserSrctermFnPtr user_srcs_func=nullptr;
+  UserESrctermFnPtr user_ercs_func=nullptr;
   UserRefinementFnPtr user_ref_func=nullptr;
   UserHistoryFnPtr user_hist_func=nullptr;
+
+  // RK stage weight for E-field source terms: gam1[stage]/beta[stage].
+  // Set by MHD::EFieldSrc before calling user_esrcs_func.
+  // Equals 1.0 for all SSPRK(2,2) stages; varies for higher-order integrators.
+  Real esrc_stage_wgt = 1.0; 
 
   // predefined problem generator functions (default test suite)
   void CallProblemGenerator(ParameterInput *pin, bool is_restart);
