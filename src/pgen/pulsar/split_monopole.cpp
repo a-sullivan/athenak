@@ -316,6 +316,9 @@ void Source(Mesh *pm, const Real dt) {
         auto &b0 = pack->pmhd->b0;
 
         const Real x0=P.x0, y0=P.y0, z0=P.z0, r_star=P.r_star;
+        const Real Om        = P.Omega;
+        const Real t_ramp    = P.t_ramp;
+        const Real t_cur     = pm->time;
         const Real s = (t_ramp > 0.0) ? fmin((t_cur/t_ramp), 1.0) : 1.0; 
         const Real Om_t = Om * s*s*(3.0-2.0*s);
 
@@ -350,7 +353,7 @@ void Source(Mesh *pm, const Real dt) {
                 if (sqrt(dx*dx + dy*dy + dz*dz) > r_star) return;
                 const Real bx = 0.5*(b0.x1f(m,k,j-1,i) + b0.x2f(m,k,j,i));
                 const Real by = 0.5*(b0.x2f(m,k,j,i-1) + b0.x2f(m,k,j,i));
-                e3(m,k,j,i) = Om_t*(dy*by+x*bx);
+                e3(m,k,j,i) = Om_t*(dy*by+dx*bx);
         });
 
     }
@@ -614,5 +617,5 @@ void ProblemGenerator::UserProblem(ParameterInput *pin, const bool restart){
 
     if (user_srcs) user_srcs_func = &pw::Source;
 
-    if (user_esrcs) user_ercs_func = &pw::EfieldMask;
+    if (user_esrcs) user_esrcs_func = &pw::EfieldMask;
 } 
