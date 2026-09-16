@@ -129,7 +129,7 @@ void A_vec_split_monopole(Real x, Real y, Real z,
     const Real sin_d2 = sin(0.5*delta);
     const Real cos_d2 = cos(0.5*delta);
     Real g;
-    if (fabs(costheta)>sin_d2){
+    if (fabs(costheta)>=sin_d2){
         g = 1.0/(1.0+fabs(costheta));
     } else {
         const Real K = cos_d2 +0.5*delta;
@@ -224,7 +224,9 @@ void Source(Mesh *pm, const Real dt) {
                 
                 // assign the floor based on the sigma floor, not on the actual density floor
                 // B0 is normalized by the chosen surface density rho_surf and sigma0 
-                Real B_sqr = SQR(pw::F_radial(r, A0, r_star, r_interior));
+                Real B_sqr_loc = bcc0(m,IBX,k,j,i)*bcc0(m,IBX,k,j,i)+bcc0(m,IBY,k,j,i)*bcc0(m,IBY,k,j,i)+bcc0(m,IBZ,k,j,i)*bcc0(m,IBZ,k,j,i);
+                Real B_sqr_env = SQR(pw::F_radial(r, A0, r_star, r_interior));
+                Real B_sqr = fmax(B_sqr_loc, B_sqr_env);
                 Real dfloor = fmax(dfloor_original, B_sqr/sigma_max);
                 Real pfloor = fmax(pfloor_original, B_sqr/2*beta_min);
 
@@ -333,25 +335,25 @@ void Source(Mesh *pm, const Real dt) {
                 e1(m,k,j,i) = -Om_t*dx*bz;
         });
 
-        par_for("emf_e2", DevExeSpace(), 0,pack->nmb_thispack-1, ks,ke+1, js,je+1, is,ie,
+        par_for("emf_e2", DevExeSpace(), 0,pack->nmb_thispack-1, ks,ke+1, js,je, is,ie+1,
             KOKKOS_LAMBDA(int m, int k, int j, int i) {
                 const auto sz = size.d_view(m);
-                const Real dx = CellCenterX(i-is, nx1, sz.x1min, sz.x1max) - x0;
-                const Real dy = LeftEdgeX  (j-js, nx2, sz.x2min, sz.x2max) - y0;
+                const Real dx = LeftEdgeX(i-is, nx1, sz.x1min, sz.x1max) - x0;
+                const Real dy = CellCenterX(j-js, nx2, sz.x2min, sz.x2max) - y0;
                 const Real dz = LeftEdgeX  (k-ks, nx3, sz.x3min, sz.x3max) - z0;
                 if (sqrt(dx*dx + dy*dy + dz*dz) > r_star) return;
                 const Real bz = 0.5*(b0.x3f(m,k,j,i-1) + b0.x3f(m,k,j,i));
                 e2(m,k,j,i) = -Om_t*dy*bz;
         });
 
-        par_for("emf_e3", DevExeSpace(), 0,pack->nmb_thispack-1, ks,ke+1, js,je+1, is,ie,
+        par_for("emf_e3", DevExeSpace(), 0,pack->nmb_thispack-1, ks,ke, js,je+1, is,ie+1,
             KOKKOS_LAMBDA(int m, int k, int j, int i) {
                 const auto sz = size.d_view(m);
-                const Real dx = CellCenterX(i-is, nx1, sz.x1min, sz.x1max) - x0;
+                const Real dx = LeftEdgeX (i-is, nx1, sz.x1min, sz.x1max) - x0;
                 const Real dy = LeftEdgeX  (j-js, nx2, sz.x2min, sz.x2max) - y0;
-                const Real dz = LeftEdgeX  (k-ks, nx3, sz.x3min, sz.x3max) - z0;
+                const Real dz = CellCenterX(k-ks, nx3, sz.x3min, sz.x3max) - z0;
                 if (sqrt(dx*dx + dy*dy + dz*dz) > r_star) return;
-                const Real bx = 0.5*(b0.x1f(m,k,j-1,i) + b0.x2f(m,k,j,i));
+                const Real bx = 0.5*(b0.x1f(m,k,j-1,i) + b0.x1f(m,k,j,i));
                 const Real by = 0.5*(b0.x2f(m,k,j,i-1) + b0.x2f(m,k,j,i));
                 e3(m,k,j,i) = Om_t*(dy*by+dx*bx);
         });
@@ -462,47 +464,6 @@ void ProblemGenerator::UserProblem(ParameterInput *pin, const bool restart){
         const Real dfloor_original = pw::P.dfloor;
         const Real pfloor_original = pw::P.pfloor;
         
-        
-
-        
-        
-        // First do loop for fluid quantities
-        par_for("pgen_fluid",DevExeSpace(),0,(pmbp->nmb_thispack-1),ks,ke,js,je,is,ie,
-        KOKKOS_LAMBDA(int m,int k,int j,int i) {
-            const auto sz = size.d_view(m);
-            Real xc = CellCenterX(i - is, nx1, sz.x1min, sz.x1max);
-            Real yc = CellCenterX(j - js, nx2, sz.x2min, sz.x2max);
-            Real zc = CellCenterX(k - ks, nx3, sz.x3min, sz.x3max);
-
-            Real dx = xc - x0, dy = yc - y0, dz = zc -z0;
-            Real rmin = epsilon*r_interior;
-            Real r = sqrt(fmax(dx*dx + dy*dy + dz*dz, rmin*rmin));
-            // assign SNR properties
-
-            // assign the floor based on the sigma floor, not on the actual density floor
-            // B0 is normalized by the chosen surface density rho_surf and sigma0 
-            //Real emag_star = SQR(B0*r_star*r_star);
-            Real B_sqr = SQR(pw::F_radial(r, A0, r_star, r_interior));
-            Real dfloor = fmax(dfloor_original, B_sqr/sigma_max);
-            Real pfloor = fmax(pfloor_original, B_sqr/2*beta_min);
-
-            Real d_set = fmax(dfloor, B_sqr/sigma0);
-            Real p_set = fmax(pfloor, B_sqr/2*beta0);
-
-            Real dens = d_set;
-            Real pgas = p_set;
-            Real egas = pgas/(gamma_ad-1.0);
-
-
-            w0(m,IDN,k,j,i) = dens;
-            w0(m,IVX,k,j,i) = 0.0;
-            w0(m,IVY,k,j,i) = 0.0;
-            w0(m,IVZ,k,j,i) = 0.0;
-            w0(m,IEN,k,j,i) = egas;
-
-
-        
-        });
         // Now do a set of loops for the magnetic field quantities
         // start with x fields
         par_for("pgen_b_x1", DevExeSpace(), 0,(pmbp->nmb_thispack-1), ks,ke, js,je, is,(ie+1),
@@ -607,8 +568,48 @@ void ProblemGenerator::UserProblem(ParameterInput *pin, const bool restart){
             bcc0(m,IBX,k,j,i) = 0.5*(bf.x1f(m,k,j,i) + bf.x1f(m,k,j,i+1));
             bcc0(m,IBY,k,j,i) = 0.5*(bf.x2f(m,k,j,i) + bf.x2f(m,k,j+1,i));
             bcc0(m,IBZ,k,j,i) = 0.5*(bf.x3f(m,k,j,i) + bf.x3f(m,k+1,j,i));
-        });
+        }); 
+        
+        // Now do loop for fluid quantities
+        par_for("pgen_fluid",DevExeSpace(),0,(pmbp->nmb_thispack-1),ks,ke,js,je,is,ie,
+        KOKKOS_LAMBDA(int m,int k,int j,int i) {
+            const auto sz = size.d_view(m);
+            Real xc = CellCenterX(i - is, nx1, sz.x1min, sz.x1max);
+            Real yc = CellCenterX(j - js, nx2, sz.x2min, sz.x2max);
+            Real zc = CellCenterX(k - ks, nx3, sz.x3min, sz.x3max);
 
+            Real dx = xc - x0, dy = yc - y0, dz = zc -z0;
+            Real rmin = epsilon*r_interior;
+            Real r = sqrt(fmax(dx*dx + dy*dy + dz*dz, rmin*rmin));
+            // assign SNR properties
+
+            // assign the floor based on the sigma floor, not on the actual density floor
+            // B0 is normalized by the chosen surface density rho_surf and sigma0 
+            //Real emag_star = SQR(B0*r_star*r_star);
+            Real B_sqr_loc = bcc0(m,IBX,k,j,i)*bcc0(m,IBX,k,j,i)+bcc0(m,IBY,k,j,i)*bcc0(m,IBY,k,j,i)+bcc0(m,IBZ,k,j,i)*bcc0(m,IBZ,k,j,i);
+            Real B_sqr_env = SQR(pw::F_radial(r, A0, r_star, r_interior));
+            Real B_sqr = fmax(B_sqr_loc, B_sqr_env);
+            Real dfloor = fmax(dfloor_original, B_sqr/sigma_max);
+            Real pfloor = fmax(pfloor_original, B_sqr/2*beta_min);
+
+            Real d_set = fmax(dfloor, B_sqr/sigma0);
+            Real p_set = fmax(pfloor, B_sqr/2*beta0);
+
+            Real dens = d_set;
+            Real pgas = p_set;
+            Real egas = pgas/(gamma_ad-1.0);
+
+
+            w0(m,IDN,k,j,i) = dens;
+            w0(m,IVX,k,j,i) = 0.0;
+            w0(m,IVY,k,j,i) = 0.0;
+            w0(m,IVZ,k,j,i) = 0.0;
+            w0(m,IEN,k,j,i) = egas;
+
+
+        
+        });
+        
         // now let us convert the ptimitives to conservative variables
         pmbp->pmhd->peos->PrimToCons(w0, bcc0, u0, is, ie, js, je, ks, ke);
 

@@ -42,7 +42,7 @@ class ProblemGenerator {
 
   // add in user e-field source
 
-  bool user_esrcs;
+  bool user_esrcs = false;
 
   // true if user history outputs are specified
   bool user_hist;
