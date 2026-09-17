@@ -1,5 +1,5 @@
 //========================================================================================
-// AthenaK pgen: Pgen for split monopole pulsar wind (Cartesian SR MHD)
+// AthenaK pgen: Pgen for dipole pulsar wind (Cartesian SR MHD)
 //
 // Magnetic field:
 //   Split-monopole with equatorial current sheet of with delta: 
@@ -323,7 +323,7 @@ void Source(Mesh *pm, const Real dt) {
         const Real t_cur     = pm->time;
         const Real s = (t_ramp > 0.0) ? fmin((t_cur/t_ramp), 1.0) : 1.0; 
         const Real Om_t = Om * s*s*(3.0-2.0*s);
-        if (Om_t == 0.0) return;
+
         par_for("emf_e1", DevExeSpace(), 0,pack->nmb_thispack-1, ks,ke+1, js,je+1, is,ie,
             KOKKOS_LAMBDA(int m, int k, int j, int i) {
                 const auto sz = size.d_view(m);
