@@ -2,16 +2,12 @@
 // AthenaK pgen: Pgen for dipole pulsar wind (Cartesian SR MHD)
 //
 // Magnetic field:
-//   Split-monopole with equatorial current sheet of with delta: 
-//   A = A_0 (r_star/r)((1-cos(theta))/sin(theta)) theta < pi/2-delta/2
-//   A = -2A_0/delta (r_star/r)(1-((theta-pi/2)cos(theta)+sin(pi/2-delta/2)+delta/2)/sin(theta)) 
-//                pi/2+delta/2 < theta < pi/2+delta/2
-//   A = A_0 (r_star/r)((1+cos(theta))/sin(theta)) theta > pi/2+delta/2
+//   Classic dipole 
+//   A = 
 //
 //   Properties:
 //     Equatorial current sheet with width delta
-//     Outside -delta/2 < theta-pi/2 <delta/2, 
-//          constant B with positive sign in northern hemisphere and negative sign in south 
+//
 //     
 //
 // 

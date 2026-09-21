@@ -60,6 +60,7 @@ struct Params {
     Real r_star; 
     Real Omega;
     Real t_ramp;
+    Real r_blend;
 
     // Magnetosphere
     Real A0;
@@ -182,6 +183,7 @@ void Source(Mesh *pm, const Real dt) {
   const Real x0        = P.x0, y0 = P.y0, z0 = P.z0;
   const Real A0         = P.A0;
   const Real r_star     = P.r_star;
+  const Real r_blend    = P.r_blend;
   const Real r_interior = P.r_interior;
   const Real epsilon = P.epsilon;
   const Real rho0       = P.rho0;
@@ -323,16 +325,20 @@ void Source(Mesh *pm, const Real dt) {
         const Real t_cur     = pm->time;
         const Real s = (t_ramp > 0.0) ? fmin((t_cur/t_ramp), 1.0) : 1.0; 
         const Real Om_t = Om * s*s*(3.0-2.0*s);
-        if (Om_t == 0.0) return;
+        const Real r_blend    = P.r_blend;
+        //if (Om_t == 0.0) return;
         par_for("emf_e1", DevExeSpace(), 0,pack->nmb_thispack-1, ks,ke+1, js,je+1, is,ie,
             KOKKOS_LAMBDA(int m, int k, int j, int i) {
                 const auto sz = size.d_view(m);
                 const Real dx = CellCenterX(i-is, nx1, sz.x1min, sz.x1max) - x0;
                 const Real dy = LeftEdgeX  (j-js, nx2, sz.x2min, sz.x2max) - y0;
                 const Real dz = LeftEdgeX  (k-ks, nx3, sz.x3min, sz.x3max) - z0;
-                if (sqrt(dx*dx + dy*dy + dz*dz) > r_star) return;
+                const Real r = sqrt(dx*dx + dy*dy + dz*dz); 
+                if (r > r_blend) return;
+                Real blend = (r_blend - r_star > 0.0) ? fmin((r_blend-r)/(r_blend-r_star),1.0) : 1.0;
                 const Real bz = 0.5*(b0.x3f(m,k,j-1,i) + b0.x3f(m,k,j,i));
-                e1(m,k,j,i) = -Om_t*dx*bz;
+
+                e1(m,k,j,i) = -Om_t*dx*bz*blend+(1.0-blend)*e1(m,k,j,i);
         });
 
         par_for("emf_e2", DevExeSpace(), 0,pack->nmb_thispack-1, ks,ke+1, js,je, is,ie+1,
@@ -341,9 +347,11 @@ void Source(Mesh *pm, const Real dt) {
                 const Real dx = LeftEdgeX(i-is, nx1, sz.x1min, sz.x1max) - x0;
                 const Real dy = CellCenterX(j-js, nx2, sz.x2min, sz.x2max) - y0;
                 const Real dz = LeftEdgeX  (k-ks, nx3, sz.x3min, sz.x3max) - z0;
-                if (sqrt(dx*dx + dy*dy + dz*dz) > r_star) return;
+                const Real r = sqrt(dx*dx + dy*dy + dz*dz); 
+                if (r > r_blend) return;
+                Real blend = (r_blend - r_star > 0.0) ? fmin((r_blend-r)/(r_blend-r_star),1.0) : 1.0;
                 const Real bz = 0.5*(b0.x3f(m,k,j,i-1) + b0.x3f(m,k,j,i));
-                e2(m,k,j,i) = -Om_t*dy*bz;
+                e2(m,k,j,i) = -Om_t*dy*bz*blend+(1.0-blend)*e2(m,k,j,i);
         });
 
         par_for("emf_e3", DevExeSpace(), 0,pack->nmb_thispack-1, ks,ke, js,je+1, is,ie+1,
@@ -352,10 +360,12 @@ void Source(Mesh *pm, const Real dt) {
                 const Real dx = LeftEdgeX (i-is, nx1, sz.x1min, sz.x1max) - x0;
                 const Real dy = LeftEdgeX  (j-js, nx2, sz.x2min, sz.x2max) - y0;
                 const Real dz = CellCenterX(k-ks, nx3, sz.x3min, sz.x3max) - z0;
-                if (sqrt(dx*dx + dy*dy + dz*dz) > r_star) return;
+                const Real r = sqrt(dx*dx + dy*dy + dz*dz); 
+                if (r > r_blend) return;
+                Real blend = (r_blend - r_star > 0.0) ? fmin((r_blend-r)/(r_blend-r_star),1.0) : 1.0;
                 const Real bx = 0.5*(b0.x1f(m,k,j-1,i) + b0.x1f(m,k,j,i));
                 const Real by = 0.5*(b0.x2f(m,k,j,i-1) + b0.x2f(m,k,j,i));
-                e3(m,k,j,i) = Om_t*(dy*by+dx*bx);
+                e3(m,k,j,i) = Om_t*(dy*by+dx*bx)*blend+(1.0-blend)*e3(m,k,j,i);
         });
 
     }
@@ -378,11 +388,19 @@ void ProblemGenerator::UserProblem(ParameterInput *pin, const bool restart){
     pw::P.r_star = pin->GetOrAddReal("problem", "r_star", 10.0);
     pw::P.Omega = pin->GetOrAddReal("problem", "Omega", 0.0);
     pw::P.t_ramp = pin->GetOrAddReal("problem", "t_ramp", 20.0);
+    pw::P.r_blend = pin->GetOrAddReal("problem", "r_blend", 11.0);
 
     if (pw::P.Omega*pw::P.r_star >= 1.0) {
         std::cout << "### FATAL ERROR in " << __FILE__ << " at line " << __LINE__ << std::endl
             << "Omega*r_star = " << pw::P.Omega*pw::P.r_star
             << " >= 1: light cylinder is inside the stellar surface" << std::endl;
+        std::exit(EXIT_FAILURE);
+    }
+
+    if (pw::P.r_blend < pw::P.r_star) {
+        std::cout << "### FATAL ERROR in " << __FILE__ << " at line " << __LINE__ << std::endl
+            << "r_blend= " << pw::P.r_blend
+            << " < r_star: blended surface is within the star" << std::endl;
         std::exit(EXIT_FAILURE);
     }
 
@@ -444,6 +462,7 @@ void ProblemGenerator::UserProblem(ParameterInput *pin, const bool restart){
         const Real e_0 = p0 / (gamma_ad - 1.0);
 
         const Real r_star = pw::P.r_star;
+        const Real r_blend = pw::P.r_blend;
         
         
         
