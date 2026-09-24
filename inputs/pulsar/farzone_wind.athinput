@@ -1,0 +1,91 @@
+<job>
+basename  = split_monopole
+
+<mesh>
+nghost    = 4
+nx1       = 64
+x1min     = -10
+x1max     =  10
+ix1_bc    = outflow
+ox1_bc    = outflow
+
+nx2       = 64
+x2min     = -10
+x2max     =  10
+ix2_bc    = outflow
+ox2_bc    = outflow
+
+nx3       = 64
+x3min     = -10
+x3max     =  10
+ix3_bc    = outflow
+ox3_bc    = outflow
+
+<meshblock>
+nx1       = 64
+nx2       = 64
+nx3       = 64
+
+<coord>
+special_rel = true     # SR MHD metric helpers on (flat spacetime)
+
+<time>
+evolution   = dynamic
+integrator  = rk2
+cfl_number  = 0.3
+tlim        = 10.1
+
+<mhd>
+eos         = ideal
+gamma       = 1.3333333333
+reconstruct = ppmx
+rsolver     = hlle
+dfloor      = 1.0e-8
+pfloor      = 3.0e-11
+fofc        = true
+gamma_max   = 100.0
+sigma_max = 100.0
+beta_min  = 1.0e-05
+
+<problem>
+pgen_name    = farzone_wind
+user_srcs    = false
+user_esrcs   = false
+
+# --- geometry ---
+x0           = 0.0 
+y0           = 0.0
+z0           = 0.0
+
+
+# --- pulsar wind ---
+
+r_star = 3.0 # radius of inner wind zone
+r_blend = 3.6 # radius over which the star solution is blended with the outside
+rho_surf = 1.0 # density at the star surface
+gamma_wind = 5.0 # bulk lorentz factor of wind
+
+
+
+# --- magnetosphere ---
+sigma0           = 10.0    # magnetization
+chi = 0.1  # current sheet thickness
+
+#----regulatization ---
+frac_star = 0.2 #fraction of the star that is not set by regulatization
+
+# ---------------- Outputs ----------------
+<output1>
+file_type   = hst
+data_format = %12.5e
+dt          = 5.0
+
+<output2>
+file_type  = bin          # 3D binary dump (full volume)
+variable   = mhd_w_bcc        # SR/NR MHD primitives: rho, press, vel1..3, etc.
+dt         = 1.0
+
+<output3>
+file_type = bin
+variable  = mhd_divb
+dt        = 1.0

@@ -1,7 +1,9 @@
 {
   "permissions": {
     "allow": [
-      "Bash(python3 /private/tmp/claude-501/-Users-asullivan-Stanford-MHD-athenak-andrew/0834d942-9107-4158-b718-8ce1239bf998/scratchpad/d0.py)"
+      "Bash(python3 /private/tmp/claude-501/-Users-asullivan-Stanford-MHD-athenak-andrew/0834d942-9107-4158-b718-8ce1239bf998/scratchpad/d0.py)",
+      "Bash(sed -i '' 's|t\\\\*t\\\\*\\(3-2\\\\*t\\) if r < r_i else 1.0\\\\n    return \\(At\\\\*c\\\\*x/r\\\\*g\\\\*B0|XX|' chk2.py)",
+      "Bash(python3 -)"
     ]
   }
 }
