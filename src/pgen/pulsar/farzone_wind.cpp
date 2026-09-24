@@ -58,17 +58,16 @@ struct Params {
 
     // Pulsar 
     Real r_star; 
-    Real Omega;
-    Real t_ramp;
+    Real chi;
     Real r_blend;
 
     // Magnetosphere
-    Real A0;
-    Real delta;
     Real sigma0;
     Real beta0;
     Real rho_surf;
     Real B0;
+    Real gamma_wind;
+    Real v_r_wind;
 
     //Regularization
     Real theta0;
@@ -91,18 +90,107 @@ struct Params {
 };
 static Params P;
 
+KOKKOS_INLINE_FUNCTION 
+void E_analytic(Real x, Real y, Real z,
+           Real x0, Real y0, Real z0, 
+           Real chi, Real B0, Real v_r_wind,
+           Real r_star, Real r_interior, Real epsilon,
+           Real &Ex, Real &Ey, Real &Ez) {
+    const Real x_r = x - x0, y_r = y - y0, z_r = z - z0;
+
+    const Real r_min = epsilon*r_interior;
+    const Real r = sqrt(fmax(x_r*x_r+y_r*y_r+z_r*z_r, r_min*r_min));
+
+
+
+    const Real costheta = fmax(-1.0, fmin(1.0, z_r/r));
+    const Real sintheta = sqrt(fmax(1.0-costheta*costheta, 0.0));
+    
+
+
+    
+    // Now let me define the polar shape g(theta)
+    // first define some helper variables
+    const Real sin_chi = sin(chi);
+    const Real cos_chi = cos(chi);
+
+    Real g;
+
+    Real A_theta;
+
+
+
+    if (costheta >= sin_chi) {
+        A_theta = 1.0;
+
+    } else if (fabs(costheta) < sin_chi ) {
+        A_theta = (2.0/M_PI)*asin(costheta/sintheta*cos_chi/sin_chi);
+    } else {
+        A_theta = -1.0;
+    }
+
+
+    
+    // make the interior region flush as you get deeper into the star interior
+    if (r < r_interior) {
+        const Real t = r/r_interior;
+        const Real lam = t*t*(9.0-8.0*t);
+        g = lam;
+    } else {
+        g = 1.0;
+    }
+
+
+    Ex = A_theta*costheta*x_r/r*g*B0*r_star/r*v_r_wind;
+    Ey = A_theta*costheta*y_r/r*g*B0*r_star/r*v_r_wind;
+    Ez = -A_theta*sintheta*sintheta*g*B0*r_star/r*v_r_wind;
+    }
+
 KOKKOS_INLINE_FUNCTION
-Real F_radial(Real r, Real A0, Real r_star, Real r_i) {
-  return (r > r_i) ? A0*r_star/(r*r)
-                   : (A0*r_star/(r_i*r_i))*(2.0 - (r*r)/(r_i*r_i));
+Real f_b(Real v_r, Real B_theta){
+    return v_r*B_theta*B_theta;
 }
 
+// this is the total sin^2theta momentum flux
+KOKKOS_INLINE_FUNCTION
+Real f_tot_func(Real x, Real y, Real z,
+           Real x0, Real y0, Real z0, 
+           Real sigma, Real B0, Real v_r,
+           Real r_star, Real r_interior, Real epsilon){
+        const Real x_r = x - x0, y_r = y - y0, z_r = z - z0;
+
+        const Real r_min = epsilon*r_interior;
+        const Real r = sqrt(fmax(x_r*x_r+y_r*y_r+z_r*z_r, r_min*r_min));
+
+
+
+        const Real costheta = fmax(-1.0, fmin(1.0, z_r/r));
+        const Real sintheta = sqrt(fmax(1.0-costheta*costheta, 0.0));
+        const Real f_b_0 = f_b(v_r, B0);
+        const Real flux = (1.0+sigma)/sigma*f_b_0*sintheta*sintheta*SQR(r_star/r);
+
+        return flux;
+    }
 
 
 KOKKOS_INLINE_FUNCTION
-void A_vec_split_monopole(Real x, Real y, Real z,
+Real f_k(Real x, Real y, Real z,
            Real x0, Real y0, Real z0, 
-           Real theta0, Real delta, Real A0,  Real r_star, Real r_interior, Real epsilon, Real theta_int,
+           Real B_theta,
+           Real sigma, Real B0, Real v_r,
+           Real r_star, Real r_interior, Real epsilon){
+            
+           const Real f_tot_num = f_tot_func(x, y, z, x0, y0, z0, sigma, B0, v_r, r_star, r_interior, epsilon);
+           const Real f_b_num = f_b(v_r, B_theta);
+
+           return f_tot_num - f_b_num;
+           }
+
+
+KOKKOS_INLINE_FUNCTION
+void A_vec_toroidal(Real x, Real y, Real z,
+           Real x0, Real y0, Real z0, 
+           Real chi, Real B0,  Real r_star, Real r_interior, Real epsilon, 
            Real &Ax, Real &Ay, Real &Az){
     const Real x_r = x - x0, y_r = y - y0, z_r = z - z0;
 
@@ -110,44 +198,48 @@ void A_vec_split_monopole(Real x, Real y, Real z,
     const Real r = sqrt(fmax(x_r*x_r+y_r*y_r+z_r*z_r, r_min*r_min));
 
 
-    //const Real r_cyl = sqrt(x_r*x_r+y_r*y_r);  // cylindrical radius
-    const Real costheta = fmax(-1.0, fmin(1.0, z_r/r));
-    const Real sintheta = sqrt(fmax(1.0-costheta*costheta, 0.0)); // works for the branch I am in since theta < pi
 
-    // Assumes vector potential is of the form 
-    //  A_x = - F(r) g(theta) y_r
-    //  A_y = F(r) g(theta) z_r
-    // A_coeff = F(r) g(theta)
+    const Real costheta = fmax(-1.0, fmin(1.0, z_r/r));
+    const Real sintheta = sqrt(fmax(1.0-costheta*costheta, 0.0));
     
 
-    // Now let me define the radial shape F(r)
-    // outside r > r_interior, the radial component has the expected split monopole form
-    // inside r < r_interior, the radial component is then regularized to be quadratic in r so there is no divergence at origin
-    const Real F = F_radial(r, A0, r_star, r_interior);
+
     
     // Now let me define the polar shape g(theta)
     // first define some helper variables
-    const Real sin_d2 = sin(0.5*delta);
-    const Real cos_d2 = cos(0.5*delta);
+    const Real sin_chi = sin(chi);
+    const Real cos_chi = cos(chi);
+
     Real g;
-    if (fabs(costheta)>=sin_d2){
-        g = 1.0/(1.0+fabs(costheta));
+
+    Real A_theta;
+
+
+
+    if (costheta >= sin_chi) {
+        A_theta = 1.0;
+
+    } else if (fabs(costheta) < sin_chi ) {
+        A_theta = (2.0/M_PI)*asin(costheta/sintheta*cos_chi/sin_chi);
     } else {
-        const Real K = cos_d2 +0.5*delta;
-        g = (2.0/delta) * (K-asin(costheta)*costheta-sintheta)/(sintheta*sintheta);
+        A_theta = -1.0;
     }
+
+
     
     // make the interior region flush as you get deeper into the star interior
     if (r < r_interior) {
         const Real t = r/r_interior;
         const Real lam = t*t*(3.0-2.0*t);
-        g = lam * g + (1.0 - lam) * theta_int; // theta_int is a constant 
+        g = lam;
+    } else {
+        g = 1.0;
     }
 
-    const Real A_coeff = F * g;
-    Ax = -A_coeff* y_r;
-    Ay = A_coeff* x_r;
-    Az = 0.0;
+
+    Ax = A_theta*costheta*x_r/r*g*B0*r_star;
+    Ay = A_theta*costheta*y_r/r*g*B0*r_star;
+    Az = -A_theta*sintheta*sintheta*g*B0*r_star;
     }
 
 // Discrete face-centered curl (uniform Cartesian)
@@ -181,14 +273,15 @@ void Source(Mesh *pm, const Real dt) {
 
   // Capture all params as device scalars
   const Real x0        = P.x0, y0 = P.y0, z0 = P.z0;
-  const Real A0         = P.A0;
+
   const Real r_star     = P.r_star;
   const Real r_blend    = P.r_blend;
   const Real r_interior = P.r_interior;
+  const Real chi        = P.chi;
   const Real epsilon = P.epsilon;
   const Real rho0       = P.rho0;
   const Real p0         = P.p0;
-  const Real delta      = P.delta;
+
   const Real theta0     = P.theta0;
   const Real B0 = P.B0;
   const Real sigma0 = P.sigma0;
@@ -200,16 +293,16 @@ void Source(Mesh *pm, const Real dt) {
   const Real beta_min = P.beta_min;
   const Real dfloor_original = P.dfloor;
   const Real pfloor_original = P.pfloor;
+  const Real v_r_wind = pw::P.v_r_wind;
+  const Real gamma_wind = pw::P.gamma_wind;
 
-  const Real Om        = P.Omega;
-  const Real t_ramp    = P.t_ramp;
-  const Real t_cur     = pm->time;
+
+
   const Real gamma_max = P.gamma_max;
 
-  const Real s = (t_ramp > 0.0) ? fmin((t_cur/t_ramp), 1.0) : 1.0; 
-  const Real Om_t = Om * s*s*(3.0-2.0*s);
 
-  par_for("monopole_reset_src", DevExeSpace(),
+
+  par_for("reset_src", DevExeSpace(),
           0, pack->nmb_thispack-1, ks,ke, js,je, is,ie,
   KOKKOS_LAMBDA(const int m, const int k, const int j, const int i) {
             const auto sz = size.d_view(m);
@@ -223,31 +316,31 @@ void Source(Mesh *pm, const Real dt) {
             Real r = sqrt(fmax(dx*dx + dy*dy + dz*dz, rmin*rmin));
             // assign SNR properties
             if(r <= r_star){
-                
                 // assign the floor based on the sigma floor, not on the actual density floor
                 // B0 is normalized by the chosen surface density rho_surf and sigma0 
                 Real B_sqr_loc = bcc0(m,IBX,k,j,i)*bcc0(m,IBX,k,j,i)+bcc0(m,IBY,k,j,i)*bcc0(m,IBY,k,j,i)+bcc0(m,IBZ,k,j,i)*bcc0(m,IBZ,k,j,i);
-                Real B_sqr_env = SQR(pw::F_radial(r, A0, r_star, r_interior));
-                Real B_sqr = fmax(B_sqr_loc, B_sqr_env);
+                Real B_loc = sqrt(B_sqr_loc);
+                Real B_sqr = B_sqr_loc;
                 Real dfloor = fmax(dfloor_original, B_sqr/sigma_max);
                 Real pfloor = fmax(pfloor_original, B_sqr/2*beta_min);
 
-                Real d_set = fmax(dfloor, B_sqr/sigma0);
+                Real f_tot = pw::f_tot_func(xc, yc, zc, x0, y0, z0, sigma0, B0, v_r_wind, r_star, r_interior, epsilon);
+                Real f_k = pw::f_k(xc, yc, zc, x0, y0, z0, B_loc, sigma0, B0, v_r_wind, r_star, r_interior, epsilon);
+                Real gamma_wind_set = gamma_wind;
+                Real d_set = fmax(dfloor, f_k/(gamma_wind_set*gamma_wind_set*v_r_wind));
                 Real p_set = fmax(pfloor, B_sqr/2*beta0);
+
 
                 Real dens = d_set;
                 Real pgas = p_set;
                 Real egas = pgas/(gamma_ad-1.0);
-                
-                // add in the rigid rotation of the star
-                
-                const Real r_cyl_sq = dx*dx+dy*dy;
-                const Real u0_rot = 1.0/sqrt(fmax(1.0-r_cyl_sq*Om_t*Om_t, 1.0/(gamma_max*gamma_max))); // lorentz factor associated with rotation
+
+
 
                 w(m,IDN,k,j,i) = dens;
-                w(m,IVX,k,j,i) = -Om_t*dy*u0_rot;
-                w(m,IVY,k,j,i) = Om_t*dx*u0_rot;
-                w(m,IVZ,k,j,i) = 0.0;
+                w(m,IVX,k,j,i) = v_r_wind*gamma_wind_set*dx/r;
+                w(m,IVY,k,j,i) = v_r_wind*gamma_wind_set*dy/r;
+                w(m,IVZ,k,j,i) = v_r_wind*gamma_wind_set*dz/r;
                 w(m,IEN,k,j,i) = egas;
 
             }
@@ -320,12 +413,31 @@ void Source(Mesh *pm, const Real dt) {
         auto &b0 = pack->pmhd->b0;
 
         const Real x0=P.x0, y0=P.y0, z0=P.z0, r_star=P.r_star;
-        const Real Om        = P.Omega;
-        const Real t_ramp    = P.t_ramp;
-        const Real t_cur     = pm->time;
-        const Real s = (t_ramp > 0.0) ? fmin((t_cur/t_ramp), 1.0) : 1.0; 
-        const Real Om_t = Om * s*s*(3.0-2.0*s);
+
         const Real r_blend    = P.r_blend;
+
+
+
+        
+        const Real r_interior = P.r_interior;
+        const Real chi        = P.chi;
+        const Real epsilon = P.epsilon;
+        const Real rho0       = P.rho0;
+        const Real p0         = P.p0;
+
+        const Real theta0     = P.theta0;
+        const Real B0 = P.B0;
+        const Real sigma0 = P.sigma0;
+        const Real beta0 = P.beta0;
+        const Real gamma_ad = pack->pmhd->peos->eos_data.gamma;
+        const Real e_0 = p0 / (gamma_ad - 1.0);
+
+        const Real sigma_max = P.sigma_max;
+        const Real beta_min = P.beta_min;
+        const Real dfloor_original = P.dfloor;
+        const Real pfloor_original = P.pfloor;
+        const Real v_r_wind = pw::P.v_r_wind;
+        const Real gamma_wind = pw::P.gamma_wind;
         //if (Om_t == 0.0) return;
         par_for("emf_e1", DevExeSpace(), 0,pack->nmb_thispack-1, ks,ke+1, js,je+1, is,ie,
             KOKKOS_LAMBDA(int m, int k, int j, int i) {
@@ -337,9 +449,10 @@ void Source(Mesh *pm, const Real dt) {
                 if (r > r_blend) return;
                 Real blend = (r_blend - r_star > 0.0) ? fmin((r_blend-r)/(r_blend-r_star),1.0) : 1.0;
                 Real blend_smooth = blend*blend*(3.0-2.0*blend);
-                const Real bz = 0.5*(b0.x3f(m,k,j-1,i) + b0.x3f(m,k,j,i));
-
-                e1(m,k,j,i) = -Om_t*dx*bz*blend_smooth+(1.0-blend_smooth)*e1(m,k,j,i);
+                //const Real bz = 0.5*(b0.x3f(m,k,j-1,i) + b0.x3f(m,k,j,i));
+                Real E1, E2, E3;
+                E_analytic(dx, dy, dz, 0.0, 0.0, 0.0, chi, B0, v_r_wind, r_star, r_interior, epsilon, E1, E2, E3);
+                e1(m,k,j,i) = E1*blend_smooth+(1.0-blend_smooth)*e1(m,k,j,i);
         });
 
         par_for("emf_e2", DevExeSpace(), 0,pack->nmb_thispack-1, ks,ke+1, js,je, is,ie+1,
@@ -352,8 +465,9 @@ void Source(Mesh *pm, const Real dt) {
                 if (r > r_blend) return;
                 Real blend = (r_blend - r_star > 0.0) ? fmin((r_blend-r)/(r_blend-r_star),1.0) : 1.0;
                 Real blend_smooth = blend*blend*(3.0-2.0*blend);
-                const Real bz = 0.5*(b0.x3f(m,k,j,i-1) + b0.x3f(m,k,j,i));
-                e2(m,k,j,i) = -Om_t*dy*bz*blend_smooth+(1.0-blend_smooth)*e2(m,k,j,i);
+                Real E1, E2, E3;
+                E_analytic(dx, dy, dz, 0.0, 0.0, 0.0, chi, B0, v_r_wind, r_star, r_interior, epsilon, E1, E2, E3);
+                e2(m,k,j,i) = E2*blend_smooth+(1.0-blend_smooth)*e2(m,k,j,i);
         });
 
         par_for("emf_e3", DevExeSpace(), 0,pack->nmb_thispack-1, ks,ke, js,je+1, is,ie+1,
@@ -366,9 +480,9 @@ void Source(Mesh *pm, const Real dt) {
                 if (r > r_blend) return;
                 Real blend = (r_blend - r_star > 0.0) ? fmin((r_blend-r)/(r_blend-r_star),1.0) : 1.0;
                 Real blend_smooth = blend*blend*(3.0-2.0*blend);
-                const Real bx = 0.5*(b0.x1f(m,k,j-1,i) + b0.x1f(m,k,j,i));
-                const Real by = 0.5*(b0.x2f(m,k,j,i-1) + b0.x2f(m,k,j,i));
-                e3(m,k,j,i) = Om_t*(dy*by+dx*bx)*blend_smooth+(1.0-blend_smooth)*e3(m,k,j,i);
+                Real E1, E2, E3;
+                E_analytic(dx, dy, dz, 0.0, 0.0, 0.0, chi, B0, v_r_wind, r_star, r_interior, epsilon, E1, E2, E3);
+                e3(m,k,j,i) = E3*blend_smooth+(1.0-blend_smooth)*e3(m,k,j,i);
         });
 
     }
@@ -389,16 +503,12 @@ void ProblemGenerator::UserProblem(ParameterInput *pin, const bool restart){
 
     // neutron star paremeters
     pw::P.r_star = pin->GetOrAddReal("problem", "r_star", 10.0);
-    pw::P.Omega = pin->GetOrAddReal("problem", "Omega", 0.0);
-    pw::P.t_ramp = pin->GetOrAddReal("problem", "t_ramp", 20.0);
+    pw::P.chi = pin->GetOrAddReal("problem", "chi", 0.0);
+    //pw::P.Omega = pin->GetOrAddReal("problem", "Omega", 0.0);
+    //pw::P.t_ramp = pin->GetOrAddReal("problem", "t_ramp", 20.0);
     pw::P.r_blend = pin->GetOrAddReal("problem", "r_blend", 11.0);
 
-    if (pw::P.Omega*pw::P.r_star >= 1.0) {
-        std::cout << "### FATAL ERROR in " << __FILE__ << " at line " << __LINE__ << std::endl
-            << "Omega*r_star = " << pw::P.Omega*pw::P.r_star
-            << " >= 1: light cylinder is inside the stellar surface" << std::endl;
-        std::exit(EXIT_FAILURE);
-    }
+
 
     if (pw::P.r_blend < pw::P.r_star) {
         std::cout << "### FATAL ERROR in " << __FILE__ << " at line " << __LINE__ << std::endl
@@ -407,19 +517,12 @@ void ProblemGenerator::UserProblem(ParameterInput *pin, const bool restart){
         std::exit(EXIT_FAILURE);
     }
 
-    // magnetosphere
-    pw::P.delta = pin->GetOrAddReal("problem", "delta", 1.0);
-    pw::P.sigma0 = pin->GetOrAddReal("problem", "sigma0", 10.0);
-    pw::P.beta0      = pin->GetOrAddReal("problem", "beta0",  1.0e-03);
-    pw::P.rho_surf = pin->GetOrAddReal("problem", "rho_surf", 1.0); // set the density at the surface of neutron star
-    pw::P.A0 = pw::P.r_star*sqrt(pw::P.rho_surf*pw::P.sigma0);
-    pw::P.B0 = sqrt(pw::P.rho_surf*pw::P.sigma0);
+    
 
     //Regularization
     pw::P.theta0 = pin->GetOrAddReal("problem", "theta0", 0.1);
     pw::P.frac_star = pin->GetOrAddReal("problem", "frac_star", 0.5);
     pw::P.epsilon = pin->GetOrAddReal("problem", "epsilon", 1e-8);
-    pw::P.theta_int = pin->GetOrAddReal("problem", "theta_int", 0.5);
     pw::P.r_interior = pw::P.frac_star * pw::P.r_star;
 
     //geometry
@@ -433,6 +536,15 @@ void ProblemGenerator::UserProblem(ParameterInput *pin, const bool restart){
     pw::P.beta_min      = pin->GetOrAddReal("mhd", "beta_min",  1.0e-05);
     pw::P.sigma_max     = pin->GetOrAddReal("mhd", "sigma_max", 1000.0);
     pw::P.gamma_max     = pin->GetOrAddReal("mhd", "gamma_max", 1000.0);
+
+    // magnetosphere
+    pw::P.gamma_wind =  fmin(pin->GetOrAddReal("problem","gamma_wind",10.0), pw::P.gamma_max);
+    pw::P.v_r_wind = sqrt(1.0-1.0/(pw::P.gamma_wind*pw::P.gamma_wind));
+    pw::P.sigma0 = pin->GetOrAddReal("problem", "sigma0", 10.0);
+    pw::P.beta0      = pin->GetOrAddReal("problem", "beta0",  1.0e-03);
+    pw::P.rho_surf = pin->GetOrAddReal("problem", "rho_surf", 1.0); // set the density at the surface of neutron star
+    
+    pw::P.B0 = sqrt(pw::P.rho_surf*pw::P.sigma0);
 
     // SNR parameters 
     // right now these are not needed, will become relevant when SNR is created
@@ -473,13 +585,16 @@ void ProblemGenerator::UserProblem(ParameterInput *pin, const bool restart){
         const Real theta0 = pw::P.theta0;
         const Real sigma0 = pw::P.sigma0;
         const Real beta0 = pw::P.beta0;
-        const Real A0 = pw::P.A0;
-        const Real delta = pw::P.delta;
+
+
+        const Real chi = pw::P.chi;
         const Real B0 = pw::P.B0;
         const Real rho_surf = pw::P.rho_surf;
         const Real r_interior = pw::P.r_interior;
         const Real epsilon = pw::P.epsilon;
         const Real theta_int = pw::P.theta_int;
+        const Real v_r_wind = pw::P.v_r_wind;
+        const Real gamma_wind = pw::P.gamma_wind;
 
         const Real sigma_max = pw::P.sigma_max;
         const Real beta_min = pw::P.beta_min;
@@ -507,10 +622,10 @@ void ProblemGenerator::UserProblem(ParameterInput *pin, const bool restart){
             }
             Real Ax, Ay, Az, Ay_zP, Ay_zM, Az_yP, Az_yM;
 
-            pw::A_vec_split_monopole(xf, yc + 0.5*dx2, zc, x0, y0, z0, theta0, delta, A0, r_star, r_interior, epsilon, theta_int, Ax, Ay, Az); Az_yP = Az;
-            pw::A_vec_split_monopole(xf, yc - 0.5*dx2, zc, x0, y0, z0, theta0, delta, A0, r_star, r_interior, epsilon, theta_int, Ax, Ay, Az); Az_yM = Az;
-            pw::A_vec_split_monopole(xf, yc, zc + 0.5*dx3, x0, y0, z0, theta0, delta, A0, r_star, r_interior, epsilon, theta_int, Ax, Ay, Az); Ay_zP = Ay;
-            pw::A_vec_split_monopole(xf, yc, zc - 0.5*dx3, x0, y0, z0, theta0, delta, A0, r_star, r_interior, epsilon, theta_int, Ax, Ay, Az); Ay_zM = Ay;
+            pw::A_vec_toroidal(xf, yc + 0.5*dx2, zc, x0, y0, z0, chi, B0,  r_star, r_interior, epsilon, Ax, Ay, Az); Az_yP = Az;
+            pw::A_vec_toroidal(xf, yc - 0.5*dx2, zc, x0, y0, z0, chi, B0,  r_star, r_interior, epsilon, Ax, Ay, Az); Az_yM = Az;
+            pw::A_vec_toroidal(xf, yc, zc + 0.5*dx3, x0, y0, z0, chi, B0,  r_star, r_interior, epsilon, Ax, Ay, Az); Ay_zP = Ay;
+            pw::A_vec_toroidal(xf, yc, zc - 0.5*dx3, x0, y0, z0, chi, B0,  r_star, r_interior, epsilon, Ax, Ay, Az); Ay_zM = Ay;
 
             bf.x1f(m, k, j, ifc) = pw::Bx_from_A(Az_yP, Az_yM, Ay_zP, Ay_zM, dx2, dx3);
                
@@ -539,10 +654,10 @@ void ProblemGenerator::UserProblem(ParameterInput *pin, const bool restart){
 
             Real Ax, Ay, Az, Ax_zP, Ax_zM, Az_xP, Az_xM;
 
-            pw::A_vec_split_monopole(xc + 0.5*dx1, yf, zc, x0, y0, z0, theta0, delta, A0, r_star, r_interior, epsilon, theta_int, Ax, Ay, Az); Az_xP = Az;
-            pw::A_vec_split_monopole(xc - 0.5*dx1, yf, zc, x0, y0, z0, theta0, delta, A0, r_star, r_interior, epsilon, theta_int, Ax, Ay, Az); Az_xM = Az;
-            pw::A_vec_split_monopole(xc, yf, zc + 0.5*dx3, x0, y0, z0, theta0, delta, A0, r_star, r_interior, epsilon, theta_int, Ax, Ay, Az); Ax_zP = Ax;
-            pw::A_vec_split_monopole(xc, yf, zc - 0.5*dx3, x0, y0, z0, theta0, delta, A0, r_star, r_interior, epsilon, theta_int, Ax, Ay, Az); Ax_zM = Ax;
+            pw::A_vec_toroidal(xc + 0.5*dx1, yf, zc, x0, y0, z0, chi, B0,  r_star, r_interior, epsilon, Ax, Ay, Az); Az_xP = Az;
+            pw::A_vec_toroidal(xc - 0.5*dx1, yf, zc, x0, y0, z0, chi, B0,  r_star, r_interior, epsilon, Ax, Ay, Az); Az_xM = Az;
+            pw::A_vec_toroidal(xc, yf, zc + 0.5*dx3, x0, y0, z0, chi, B0,  r_star, r_interior, epsilon, Ax, Ay, Az); Ax_zP = Ax;
+            pw::A_vec_toroidal(xc, yf, zc - 0.5*dx3, x0, y0, z0, chi, B0,  r_star, r_interior, epsilon, Ax, Ay, Az); Ax_zM = Ax;
 
             bf.x2f(m, k, jfc, i) = pw::By_from_A(Ax_zP, Ax_zM, Az_xP, Az_xM, dx3, dx1);
             
@@ -572,10 +687,10 @@ void ProblemGenerator::UserProblem(ParameterInput *pin, const bool restart){
 
             Real Ax, Ay, Az, Ax_yP, Ax_yM, Ay_xP, Ay_xM;
 
-            pw::A_vec_split_monopole(xc + 0.5*dx1, yc, zf, x0, y0, z0, theta0, delta, A0, r_star, r_interior, epsilon, theta_int, Ax, Ay, Az); Ay_xP = Ay;
-            pw::A_vec_split_monopole(xc - 0.5*dx1, yc, zf, x0, y0, z0, theta0, delta, A0, r_star, r_interior, epsilon, theta_int, Ax, Ay, Az); Ay_xM = Ay;
-            pw::A_vec_split_monopole(xc, yc + 0.5*dx2, zf , x0, y0, z0, theta0, delta, A0, r_star, r_interior, epsilon, theta_int, Ax, Ay, Az); Ax_yP = Ax;
-            pw::A_vec_split_monopole(xc, yc - 0.5*dx2, zf , x0, y0, z0, theta0, delta, A0, r_star, r_interior, epsilon, theta_int, Ax, Ay, Az); Ax_yM = Ax;
+            pw::A_vec_toroidal(xc + 0.5*dx1, yc, zf, x0, y0, z0, chi, B0,  r_star, r_interior, epsilon, Ax, Ay, Az); Ay_xP = Ay;
+            pw::A_vec_toroidal(xc - 0.5*dx1, yc, zf, x0, y0, z0, chi, B0,  r_star, r_interior, epsilon, Ax, Ay, Az); Ay_xM = Ay;
+            pw::A_vec_toroidal(xc, yc + 0.5*dx2, zf , x0, y0, z0, chi, B0,  r_star, r_interior, epsilon, Ax, Ay, Az); Ax_yP = Ax;
+            pw::A_vec_toroidal(xc, yc - 0.5*dx2, zf , x0, y0, z0, chi, B0,  r_star, r_interior, epsilon, Ax, Ay, Az); Ax_yM = Ax;
 
             bf.x3f(m, kfc, j, i)  = pw::Bz_from_A(Ay_xP, Ay_xM, Ax_yP, Ax_yM, dx1, dx2);
                
@@ -609,23 +724,28 @@ void ProblemGenerator::UserProblem(ParameterInput *pin, const bool restart){
             // B0 is normalized by the chosen surface density rho_surf and sigma0 
             //Real emag_star = SQR(B0*r_star*r_star);
             Real B_sqr_loc = bcc0(m,IBX,k,j,i)*bcc0(m,IBX,k,j,i)+bcc0(m,IBY,k,j,i)*bcc0(m,IBY,k,j,i)+bcc0(m,IBZ,k,j,i)*bcc0(m,IBZ,k,j,i);
-            Real B_sqr_env = SQR(pw::F_radial(r, A0, r_star, r_interior));
-            Real B_sqr = fmax(B_sqr_loc, B_sqr_env);
+            Real B_loc = sqrt(B_sqr_loc);
+            Real B_sqr = B_sqr_loc;
             Real dfloor = fmax(dfloor_original, B_sqr/sigma_max);
             Real pfloor = fmax(pfloor_original, B_sqr/2*beta_min);
 
-            Real d_set = fmax(dfloor, B_sqr/sigma0);
+            Real f_tot = pw::f_tot_func(xc, yc, zc, x0, y0, z0, sigma0, B0, v_r_wind, r_star, r_interior, epsilon);
+            Real f_k = pw::f_k(xc, yc, zc, x0, y0, z0, B_loc, sigma0, B0, v_r_wind, r_star, r_interior, epsilon);
+            Real gamma_wind_set = gamma_wind;
+            Real d_set = fmax(dfloor, f_k/(gamma_wind_set*gamma_wind_set*v_r_wind));
             Real p_set = fmax(pfloor, B_sqr/2*beta0);
+
 
             Real dens = d_set;
             Real pgas = p_set;
             Real egas = pgas/(gamma_ad-1.0);
 
 
+
             w0(m,IDN,k,j,i) = dens;
-            w0(m,IVX,k,j,i) = 0.0;
-            w0(m,IVY,k,j,i) = 0.0;
-            w0(m,IVZ,k,j,i) = 0.0;
+            w0(m,IVX,k,j,i) = v_r_wind*gamma_wind_set*dx/r;
+            w0(m,IVY,k,j,i) = v_r_wind*gamma_wind_set*dy/r;
+            w0(m,IVZ,k,j,i) = v_r_wind*gamma_wind_set*dz/r;
             w0(m,IEN,k,j,i) = egas;
 
 
