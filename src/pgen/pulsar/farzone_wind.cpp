@@ -114,7 +114,7 @@ void E_analytic(Real x, Real y, Real z,
     const Real sin_chi = sin(chi);
     const Real cos_chi = cos(chi);
 
-    Real g;
+    const Real g = 1.0;
 
     Real A_theta;
 
@@ -131,14 +131,6 @@ void E_analytic(Real x, Real y, Real z,
 
 
     
-    // make the interior region flush as you get deeper into the star interior
-    if (r < r_interior) {
-        const Real t = r/r_interior;
-        const Real lam = t*t*(9.0-8.0*t);
-        g = lam;
-    } else {
-        g = 1.0;
-    }
 
 
     Ex = A_theta*costheta*x_r/r*g*B0*r_star/r*v_r_wind;
@@ -156,7 +148,7 @@ KOKKOS_INLINE_FUNCTION
 Real f_tot_func(Real x, Real y, Real z,
            Real x0, Real y0, Real z0, 
            Real sigma, Real B0, Real v_r,
-           Real r_star, Real r_interior, Real epsilon){
+           Real r_star, Real r_interior, Real epsilon, Real b){
         const Real x_r = x - x0, y_r = y - y0, z_r = z - z0;
 
         const Real r_min = epsilon*r_interior;
@@ -167,7 +159,10 @@ Real f_tot_func(Real x, Real y, Real z,
         const Real costheta = fmax(-1.0, fmin(1.0, z_r/r));
         const Real sintheta = sqrt(fmax(1.0-costheta*costheta, 0.0));
         const Real f_b_0 = f_b(v_r, B0);
-        const Real flux = (1.0+sigma)/sigma*f_b_0*sintheta*sintheta*SQR(r_star/r);
+        
+        const Real g = 1.0;
+
+        const Real flux = (1.0+sigma)/sigma*f_b_0*(sintheta*sintheta+b)*SQR(r_star/r)*g*g;
 
         return flux;
     }
@@ -178,9 +173,9 @@ Real f_k(Real x, Real y, Real z,
            Real x0, Real y0, Real z0, 
            Real B_theta,
            Real sigma, Real B0, Real v_r,
-           Real r_star, Real r_interior, Real epsilon){
+           Real r_star, Real r_interior, Real epsilon, Real theta0){
             
-           const Real f_tot_num = f_tot_func(x, y, z, x0, y0, z0, sigma, B0, v_r, r_star, r_interior, epsilon);
+           const Real f_tot_num = f_tot_func(x, y, z, x0, y0, z0, sigma, B0, v_r, r_star, r_interior, epsilon, theta0);
            const Real f_b_num = f_b(v_r, B_theta);
 
            return f_tot_num - f_b_num;
@@ -210,7 +205,7 @@ void A_vec_toroidal(Real x, Real y, Real z,
     const Real sin_chi = sin(chi);
     const Real cos_chi = cos(chi);
 
-    Real g;
+    const Real g=1.0;
 
     Real A_theta;
 
@@ -223,17 +218,6 @@ void A_vec_toroidal(Real x, Real y, Real z,
         A_theta = (2.0/M_PI)*asin(costheta/sintheta*cos_chi/sin_chi);
     } else {
         A_theta = -1.0;
-    }
-
-
-    
-    // make the interior region flush as you get deeper into the star interior
-    if (r < r_interior) {
-        const Real t = r/r_interior;
-        const Real lam = t*t*(3.0-2.0*t);
-        g = lam;
-    } else {
-        g = 1.0;
     }
 
 
@@ -282,6 +266,7 @@ void Source(Mesh *pm, const Real dt) {
   const Real rho0       = P.rho0;
   const Real p0         = P.p0;
 
+
   const Real theta0     = P.theta0;
   const Real B0 = P.B0;
   const Real sigma0 = P.sigma0;
@@ -314,6 +299,8 @@ void Source(Mesh *pm, const Real dt) {
 
             Real rmin = epsilon*r_interior;
             Real r = sqrt(fmax(dx*dx + dy*dy + dz*dz, rmin*rmin));
+            const Real costheta = fmax(-1.0, fmin(1.0, dz/r));
+            const Real sintheta = sqrt(fmax(1.0-costheta*costheta, 0.0));
             // assign SNR properties
             if(r <= r_star){
                 // assign the floor based on the sigma floor, not on the actual density floor
@@ -321,14 +308,22 @@ void Source(Mesh *pm, const Real dt) {
                 Real B_sqr_loc = bcc0(m,IBX,k,j,i)*bcc0(m,IBX,k,j,i)+bcc0(m,IBY,k,j,i)*bcc0(m,IBY,k,j,i)+bcc0(m,IBZ,k,j,i)*bcc0(m,IBZ,k,j,i);
                 Real B_loc = sqrt(B_sqr_loc);
                 Real B_sqr = B_sqr_loc;
-                Real dfloor = fmax(dfloor_original, B_sqr/sigma_max);
-                Real pfloor = fmax(pfloor_original, B_sqr/2*beta_min);
+                Real dfloor = fmax(dfloor_original, B_sqr/(sigma_max*gamma_wind*gamma_wind));
+                Real pfloor = fmax(pfloor_original, B_sqr/(2*gamma_wind*gamma_wind)*beta_min);
 
-                Real f_tot = pw::f_tot_func(xc, yc, zc, x0, y0, z0, sigma0, B0, v_r_wind, r_star, r_interior, epsilon);
-                Real f_k = pw::f_k(xc, yc, zc, x0, y0, z0, B_loc, sigma0, B0, v_r_wind, r_star, r_interior, epsilon);
+                Real f_tot = pw::f_tot_func(xc, yc, zc, x0, y0, z0, sigma0, B0, v_r_wind, r_star, r_interior, epsilon, theta0);
+                Real f_k = pw::f_k(xc, yc, zc, x0, y0, z0, B_loc, sigma0, B0, v_r_wind, r_star, r_interior, epsilon, theta0);
                 Real gamma_wind_set = gamma_wind;
                 Real d_set = fmax(dfloor, f_k/(gamma_wind_set*gamma_wind_set*v_r_wind));
-                Real p_set = fmax(pfloor, B_sqr/2*beta0);
+
+                const Real h = 1.0;
+
+                Real B_sqr_env = SQR(B0*r_star*sintheta*h/r);        // unstriped envelope
+                Real gam2      = gamma_wind_set*gamma_wind_set;
+                Real b2_env    = B_sqr_env/gam2;                      // comoving
+                Real b2_loc    = B_sqr_loc/gam2;
+
+                Real p_set = fmax(pfloor, 0.5*(b2_env - b2_loc) + 0.5*beta0*b2_env);
 
 
                 Real dens = d_set;
@@ -336,12 +331,14 @@ void Source(Mesh *pm, const Real dt) {
                 Real egas = pgas/(gamma_ad-1.0);
 
 
-
-                w(m,IDN,k,j,i) = dens;
-                w(m,IVX,k,j,i) = v_r_wind*gamma_wind_set*dx/r;
-                w(m,IVY,k,j,i) = v_r_wind*gamma_wind_set*dy/r;
-                w(m,IVZ,k,j,i) = v_r_wind*gamma_wind_set*dz/r;
-                w(m,IEN,k,j,i) = egas;
+                if (r > r_blend) return;
+                Real blend = (r_blend - r_star > 0.0) ? fmin((r_blend-r)/(r_blend-r_star),1.0) : 1.0;
+                Real blend_smooth = blend*blend*(3.0-2.0*blend);
+                w(m,IDN,k,j,i) = dens*blend_smooth+w(m,IDN,k,j,i)*(1.0-blend_smooth);
+                w(m,IVX,k,j,i) = v_r_wind*gamma_wind_set*dx/r*blend_smooth + w(m,IVX,k,j,i)*(1.0-blend_smooth);
+                w(m,IVY,k,j,i) = v_r_wind*gamma_wind_set*dy/r*blend_smooth + w(m,IVY,k,j,i)*(1.0-blend_smooth);
+                w(m,IVZ,k,j,i) = v_r_wind*gamma_wind_set*dz/r*blend_smooth + w(m,IVZ,k,j,i)*(1.0-blend_smooth);
+                w(m,IEN,k,j,i) = egas*blend_smooth + w(m,IEN,k,j,i)*(1.0-blend_smooth);
 
             }
             
@@ -520,7 +517,7 @@ void ProblemGenerator::UserProblem(ParameterInput *pin, const bool restart){
     
 
     //Regularization
-    pw::P.theta0 = pin->GetOrAddReal("problem", "theta0", 0.1);
+    pw::P.theta0 = pin->GetOrAddReal("problem", "theta0", 0.03);
     pw::P.frac_star = pin->GetOrAddReal("problem", "frac_star", 0.5);
     pw::P.epsilon = pin->GetOrAddReal("problem", "epsilon", 1e-8);
     pw::P.r_interior = pw::P.frac_star * pw::P.r_star;
@@ -544,7 +541,8 @@ void ProblemGenerator::UserProblem(ParameterInput *pin, const bool restart){
     pw::P.beta0      = pin->GetOrAddReal("problem", "beta0",  1.0e-03);
     pw::P.rho_surf = pin->GetOrAddReal("problem", "rho_surf", 1.0); // set the density at the surface of neutron star
     
-    pw::P.B0 = sqrt(pw::P.rho_surf*pw::P.sigma0);
+    pw::P.B0 = pw::P.gamma_wind*sqrt(pw::P.rho_surf*pw::P.sigma0);
+    std::cout << "B0 = "<< pw::P.B0 << std::endl;
 
     // SNR parameters 
     // right now these are not needed, will become relevant when SNR is created
@@ -718,6 +716,8 @@ void ProblemGenerator::UserProblem(ParameterInput *pin, const bool restart){
             Real dx = xc - x0, dy = yc - y0, dz = zc -z0;
             Real rmin = epsilon*r_interior;
             Real r = sqrt(fmax(dx*dx + dy*dy + dz*dz, rmin*rmin));
+            const Real costheta = fmax(-1.0, fmin(1.0, dz/r));
+            const Real sintheta = sqrt(fmax(1.0-costheta*costheta, 0.0));
             // assign SNR properties
 
             // assign the floor based on the sigma floor, not on the actual density floor
@@ -726,14 +726,25 @@ void ProblemGenerator::UserProblem(ParameterInput *pin, const bool restart){
             Real B_sqr_loc = bcc0(m,IBX,k,j,i)*bcc0(m,IBX,k,j,i)+bcc0(m,IBY,k,j,i)*bcc0(m,IBY,k,j,i)+bcc0(m,IBZ,k,j,i)*bcc0(m,IBZ,k,j,i);
             Real B_loc = sqrt(B_sqr_loc);
             Real B_sqr = B_sqr_loc;
-            Real dfloor = fmax(dfloor_original, B_sqr/sigma_max);
-            Real pfloor = fmax(pfloor_original, B_sqr/2*beta_min);
+            Real dfloor = fmax(dfloor_original, B_sqr/(gamma_wind*gamma_wind*sigma_max));
+            Real pfloor = fmax(pfloor_original, B_sqr/(2.0*gamma_wind*gamma_wind)*beta_min);
 
-            Real f_tot = pw::f_tot_func(xc, yc, zc, x0, y0, z0, sigma0, B0, v_r_wind, r_star, r_interior, epsilon);
-            Real f_k = pw::f_k(xc, yc, zc, x0, y0, z0, B_loc, sigma0, B0, v_r_wind, r_star, r_interior, epsilon);
+            Real f_tot = pw::f_tot_func(xc, yc, zc, x0, y0, z0, sigma0, B0, v_r_wind, r_star, r_interior, epsilon, theta0);
+            Real f_k = pw::f_k(xc, yc, zc, x0, y0, z0, B_loc, sigma0, B0, v_r_wind, r_star, r_interior, epsilon, theta0);
             Real gamma_wind_set = gamma_wind;
             Real d_set = fmax(dfloor, f_k/(gamma_wind_set*gamma_wind_set*v_r_wind));
-            Real p_set = fmax(pfloor, B_sqr/2*beta0);
+
+            std::cout << "sigma = "<< B_sqr/(gamma_wind*gamma_wind*d_set) << std::endl;
+
+
+            const Real h = 1.0;
+
+            Real B_sqr_env = SQR(B0*r_star*sintheta*h/r);        // unstriped envelope
+            Real gam2      = gamma_wind_set*gamma_wind_set;
+            Real b2_env    = B_sqr_env/gam2;                      // comoving
+            Real b2_loc    = B_sqr_loc/gam2;
+
+            Real p_set = fmax(pfloor, 0.5*(b2_env - b2_loc) + 0.5*beta0*b2_env);
 
 
             Real dens = d_set;

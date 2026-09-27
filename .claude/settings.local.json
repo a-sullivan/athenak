@@ -3,7 +3,16 @@
     "allow": [
       "Bash(python3 /private/tmp/claude-501/-Users-asullivan-Stanford-MHD-athenak-andrew/0834d942-9107-4158-b718-8ce1239bf998/scratchpad/d0.py)",
       "Bash(sed -i '' 's|t\\\\*t\\\\*\\(3-2\\\\*t\\) if r < r_i else 1.0\\\\n    return \\(At\\\\*c\\\\*x/r\\\\*g\\\\*B0|XX|' chk2.py)",
-      "Bash(python3 -)"
+      "Bash(python3 -)",
+      "Bash(awk 'NR>=305 && NR<=365' src/pgen/pulsar/farzone_wind.cpp)",
+      "Bash(awk 'NR>=725 && NR<=780' src/pgen/pulsar/farzone_wind.cpp)",
+      "Bash(D=/Users/asullivan/SCEECSFellowship/Columbia/PWN/MHD/farzone_wind/2026-09-25_3_chi0; ls \"$D\" 2>/dev/null | head -20; echo \"=== athinput ===\"; find \"$D\" -maxdepth 1 -name '*athinput*' -o -maxdepth 1 -name '*.in' 2>/dev/null | head)",
+      "Read(//Users/asullivan/SCEECSFellowship/Columbia/PWN/MHD/farzone_wind/2026-09-25_3_chi0/**)",
+      "Bash(D=/Users/asullivan/SCEECSFellowship/Columbia/PWN/MHD/farzone_wind/2026-09-25_3_chi0; grep -vE '^\\\\s*#|^$' \"$D/farzone_wind.athinput\")",
+      "Read(//Users/asullivan/SCEECSFellowship/Columbia/PWN/MHD/farzone_wind/2026-09-25_3_chi0/bin/**)",
+      "Bash(ps -eo pid,lstart,etime,comm,args)",
+      "Bash(md5 -q /Users/asullivan/Stanford/MHD/athenak_andrew/build/src/athena /Users/asullivan/SCEECSFellowship/Columbia/PWN/MHD/farzone_wind/2026-09-25_3_chi0/athena)",
+      "Bash([ \"$R/build/src/athena\" -nt \"$R/src/pgen/pulsar/farzone_wind.cpp\" ])"
     ]
   }
 }
