@@ -542,7 +542,7 @@ void ProblemGenerator::UserProblem(ParameterInput *pin, const bool restart){
     pw::P.rho_surf = pin->GetOrAddReal("problem", "rho_surf", 1.0); // set the density at the surface of neutron star
     
     pw::P.B0 = pw::P.gamma_wind*sqrt(pw::P.rho_surf*pw::P.sigma0);
-    std::cout << "B0 = "<< pw::P.B0 << std::endl;
+    //std::cout << "B0 = "<< pw::P.B0 << std::endl;
 
     // SNR parameters 
     // right now these are not needed, will become relevant when SNR is created
@@ -734,7 +734,7 @@ void ProblemGenerator::UserProblem(ParameterInput *pin, const bool restart){
             Real gamma_wind_set = gamma_wind;
             Real d_set = fmax(dfloor, f_k/(gamma_wind_set*gamma_wind_set*v_r_wind));
 
-            std::cout << "sigma = "<< B_sqr/(gamma_wind*gamma_wind*d_set) << std::endl;
+            //std::cout << "sigma = "<< B_sqr/(gamma_wind*gamma_wind*d_set) << std::endl;
 
 
             const Real h = 1.0;
