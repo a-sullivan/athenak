@@ -43,70 +43,80 @@ def plot_domain_slice(mb_data_var, mb_geometry, n_mbs, y_target=0.0, cmap ='viri
 
 
 def plot_domain_slice_with_vectors(mb_data_var, mb_data_vector_coord1, mb_data_vector_coord2, mb_geometry, n_mbs, y_target=0.0, cmap ='viridis', xmin_global=-10., xmax_global=10., ymin_global=-10., ymax_global=10., stride = 1, norm=1.e-8, save=False, savename="density.pdf", dpi = 100, with_r=True, vmin=0.5, vmax=10.):
+    """x-z slice at y = y_target.  mb_data arrays are ordered (Nz, Ny, Nx)."""
     fig, ax = plt.subplots(figsize=(8, 8))
+    im = None
 
     for n in range(0, n_mbs):
         # Extents: [xmin, xmax, ymin, ymax, zmin, zmax]
         xmin, xmax, ymin, ymax, zmin, zmax = mb_geometry[n]
         
         # 1. Check if the block intersects the slice plane
-        if ymin <= y_target < ymax:
-            data = mb_data_var[n]  # 3D array of shape (Nx, Ny, Nz)
-            Ny = data.shape[1]
-            #print(n)
-            # 2. Find local index along the Y-axis
-            y_coords = np.linspace(ymin, ymax, Ny)
-            y_idx = np.argmin(np.abs(y_coords - y_target))
+        if not (ymin <= y_target < ymax):
+            continue
+
+        data = mb_data_var[n]  # 3D array of shape (Nz, Ny, Nx)
+        Nz, Ny, Nx = data.shape
+
+        # 2. Find local index along the Y-axis.  mb_geometry holds the block's
+        # outer faces, so cell centers sit half a cell inside them --
+        # linspace(ymin, ymax, Ny) would sample the faces instead.
+        y = ymin + (np.arange(Ny) + 0.5)*(ymax - ymin)/Ny
+        y_idx = np.argmin(np.abs(y - y_target))
+
+        # 3. Extract 2D slice (Nz, Nx)
+        slice_2d = data[:, y_idx, :]
+
+        vector1_2d = mb_data_vector_coord1[n][:, y_idx, :]
+        vector2_2d = mb_data_vector_coord2[n][:, y_idx, :]
+
+
+        x = xmin + (np.arange(Nx) + 0.5)*(xmax - xmin)/Nx
+        z = zmin + (np.arange(Nz) + 0.5)*(zmax - zmin)/Nz
+        # 'ij' so both are (Nz, Nx) and line up with slice_2d
+        Z, X = np.meshgrid(z, x, indexing='ij')
+
+        # Keep this in a fresh local: rebinding `norm` would make the division
+        # compound from one meshblock to the next (block k picking up r^(2k+2)).
+        scale = norm/(X**2 + Z**2) if with_r else norm
+
+        # 4. Draw patch using physical spatial bounds.  Rows of slice_2d are z,
+        # columns are x, which is what imshow wants given this extent.
+        # vmin/vmax go in here -- a trailing set_clim() would only ever reach
+        # the last block's image, leaving every other block autoscaled.
+        im = ax.imshow(
+            slice_2d/scale,
+            origin='lower',
+            extent=[xmin, xmax, zmin, zmax],
+            aspect='equal',
+            cmap=cmap,
+            vmin=vmin,
+            vmax=vmax,
+        )
+
             
-            # 3. Extract 2D slice (Nx, Nz)
-            slice_2d = data[:, y_idx, :]
 
-            vector1_2d = mb_data_vector_coord1[n][:, y_idx, :]
-            vector2_2d = mb_data_vector_coord2[n][:, y_idx, :]
-
-
-            Nx, Nz = slice_2d.shape
-            x = np.linspace(xmin, xmax, Nx)
-            z = np.linspace(zmin, zmax, Nz)
-            Z, X = np.meshgrid( z, x)
-
-            if with_r:
-                norm = norm/(X**2+Z**2)
-
-            # 4. Draw patch using physical spatial bounds
-            # Note: transpose (.T) so X maps to horizontal and Z to vertical
-            im=ax.imshow(
-                slice_2d/norm, 
-                origin='lower', 
-                extent=[xmin, xmax, zmin, zmax],
-                aspect='equal',
-                cmap=cmap
-            )
-
-            
-
-            # 5. Overlay vector arrows with subsampling (stride)
-            ax.streamplot(
-                X[::stride, ::stride].transpose(), 
-                Z[::stride, ::stride].transpose(), 
-                vector1_2d[::stride, ::stride], 
-                vector2_2d[::stride, ::stride], 
-                color='white',
-                density=0.5
-                #scale_units='xy',
-                #angles='xy'
-            )
+         # 5. Overlay streamlines with subsampling (stride)
+        ax.streamplot(
+            X[::stride, ::stride],
+            Z[::stride, ::stride],
+            vector1_2d[::stride, ::stride],
+            vector2_2d[::stride, ::stride],
+            color='white',
+            density=0.5
+        )
 
     ax.set_xlabel('X', fontsize=desiredfontsize)
     ax.set_ylabel('Z', fontsize=desiredfontsize)
     ax.set_xlim(xmin_global, xmax_global)
     ax.set_ylim(ymin_global, ymax_global)
 
-    cbar = fig.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
-    im.set_clim(vmin=vmin, vmax=vmax)
-    #cbar.set_label(r$\rho/\rho_{\rm floor}$,  fontsize=desiredfontsize)
+    if im is not None:
+        cbar = fig.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
+        #cbar.set_label(r'$\rho/\rho_{\rm floor}$',  fontsize=desiredfontsize)
     if save:
         fig.savefig(savename, dpi = dpi)
+    #plt.show()
     #plt.show()
 
 
@@ -148,69 +158,73 @@ def plot_domain_slice_xy(mb_data_var, mb_geometry, n_mbs, z_target=0.0, cmap ='v
 
 
 def plot_domain_slice_with_vectors_xy(mb_data_var, mb_data_vector_coord1, mb_data_vector_coord2, mb_geometry, n_mbs, z_target=0.0, cmap ='viridis', xmin_global=-10., xmax_global=10., ymin_global=-10., ymax_global=10., stride = 1, norm=1.e-8, save=False, savename="density.pdf", dpi = 100, with_r=True, vmin=0.5, vmax=10.):
+    """x-y slice at z = z_target.  mb_data arrays are ordered (Nz, Ny, Nx)."""
     fig, ax = plt.subplots(figsize=(8, 8))
+    im = None
 
     for n in range(0, n_mbs):
         # Extents: [xmin, xmax, ymin, ymax, zmin, zmax]
         xmin, xmax, ymin, ymax, zmin, zmax = mb_geometry[n]
-        
+
         # 1. Check if the block intersects the slice plane
-        if zmin <= z_target < zmax:
-            data = mb_data_var[n]  # 3D array of shape (Nx, Ny, Nz)
-            Nz = data.shape[1]
-            #print(n)
-            # 2. Find local index along the Y-axis
-            z_coords = np.linspace(zmin, zmax, Nz)
-            z_idx = np.argmin(np.abs(z_coords - z_target))
-            
-            # 3. Extract 2D slice (Nx, Nz)
-            slice_2d = data[z_idx, :, :]
+        if not (zmin <= z_target < zmax):
+            continue
 
-            vector1_2d = mb_data_vector_coord1[n][z_idx, :, :]
-            vector2_2d = mb_data_vector_coord2[n][z_idx, :, :]
+        data = mb_data_var[n]                      # (Nz, Ny, Nx)
 
-            Nx, Ny = slice_2d.shape
-            x = np.linspace(xmin, xmax, Nx)
-            y = np.linspace(ymin, ymax, Ny)
-            Y, X = np.meshgrid( y, x)
-            
-            if with_r:
-                norm = norm/(X**2+Y**2)
-            # 4. Draw patch using physical spatial bounds
-            # Note: transpose (.T) so X maps to horizontal and Z to vertical
-            im=ax.imshow(
-                slice_2d/norm, 
-                origin='lower', 
-                extent=[xmin, xmax, ymin, ymax],
-                aspect='equal',
-                cmap=cmap
-            )
+        # 2. Cell-center axes, via the same helper check_flux_analytic uses so
+        # the two never disagree.  mb_geometry holds the block's outer faces,
+        # so linspace(min, max, N) would sample the faces instead.
+        Zc, Yc, Xc = mb_cell_centers(mb_geometry, n, data.shape)
+        z, y, x = Zc.ravel(), Yc.ravel(), Xc.ravel()
 
-            
+        # 3. Find local index along the z-axis and extract the (Ny, Nx) slice
+        z_idx = np.argmin(np.abs(z - z_target))
+        slice_2d   = data[z_idx, :, :]
+        vector1_2d = mb_data_vector_coord1[n][z_idx, :, :]
+        vector2_2d = mb_data_vector_coord2[n][z_idx, :, :]
 
-            # 5. Overlay vector arrows with subsampling (stride)
-            ax.streamplot(
-                X[::stride, ::stride].transpose(), 
-                Y[::stride, ::stride].transpose(), 
-                vector1_2d[::stride, ::stride], 
-                vector2_2d[::stride, ::stride], 
-                color='white',
-                density=0.5
-                #scale_units='xy',
-                #angles='xy'
-            )
+        # 'ij' so X and Y are both (Ny, Nx) and line up with slice_2d
+        Y, X = np.meshgrid(y, x, indexing='ij')
+
+        # 4. Keep this in a fresh local.  Assigning to `norm` here would rebind
+        # the function argument, so block k would be divided by the running
+        # product of blocks 0..k and pick up r^(2k+2) instead of r^2.
+        scale = norm/(X**2 + Y**2) if with_r else norm
+
+        # Rows of slice_2d are y, columns are x, which is what imshow wants
+        # given this extent.  vmin/vmax go in here: a trailing set_clim() only
+        # ever reaches the last block's image and leaves the rest autoscaled.
+        im = ax.imshow(
+            slice_2d/scale,
+            origin='lower',
+            extent=[xmin, xmax, ymin, ymax],
+            aspect='equal',
+            cmap=cmap,
+            vmin=vmin,
+            vmax=vmax,
+        )
+
+        # 5. Overlay streamlines with subsampling (stride)
+        ax.streamplot(
+            X[::stride, ::stride],
+            Y[::stride, ::stride],
+            vector1_2d[::stride, ::stride],
+            vector2_2d[::stride, ::stride],
+            color='white',
+            density=0.5
+        )
 
     ax.set_xlabel('X', fontsize=desiredfontsize)
     ax.set_ylabel('Y', fontsize=desiredfontsize)
     ax.set_xlim(xmin_global, xmax_global)
     ax.set_ylim(ymin_global, ymax_global)
 
-    im.set_clim(vmin=vmin, vmax=vmax)
-    cbar = fig.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
-    
-    #cbar.set_label(r$\rho/\rho_{\rm floor}$,  fontsize=desiredfontsize)
+    if im is not None:
+        cbar = fig.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
+        #cbar.set_label(r'$\rho/\rho_{\rm floor}$', fontsize=desiredfontsize)
     if save:
-        fig.savefig(savename, dpi = dpi)
+        fig.savefig(savename, dpi=dpi)
     #plt.show()
 
 # code for computing surface integrals

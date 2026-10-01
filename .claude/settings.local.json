@@ -12,7 +12,12 @@
       "Read(//Users/asullivan/SCEECSFellowship/Columbia/PWN/MHD/farzone_wind/2026-09-25_3_chi0/bin/**)",
       "Bash(ps -eo pid,lstart,etime,comm,args)",
       "Bash(md5 -q /Users/asullivan/Stanford/MHD/athenak_andrew/build/src/athena /Users/asullivan/SCEECSFellowship/Columbia/PWN/MHD/farzone_wind/2026-09-25_3_chi0/athena)",
-      "Bash([ \"$R/build/src/athena\" -nt \"$R/src/pgen/pulsar/farzone_wind.cpp\" ])"
+      "Bash([ \"$R/build/src/athena\" -nt \"$R/src/pgen/pulsar/farzone_wind.cpp\" ])",
+      "Bash(cd /Users/asullivan/SCEECSFellowship/Columbia/PWN/MHD/farzone_wind && ls -d 2026-09-2* 2>/dev/null; echo \"=== newest run bins ===\"; ls -t 2026-09-2*/*.bin 2>/dev/null | head -5; echo \"=== bin_convert ===\"; ls /Users/asullivan/Stanford/MHD/athenak_andrew/vis/python/bin_convert.py)",
+      "Read(//Users/asullivan/SCEECSFellowship/Columbia/PWN/MHD/farzone_wind/**)",
+      "Bash(cd /Users/asullivan/SCEECSFellowship/Columbia/PWN/MHD/farzone_wind/2026-09-26_chi0_sigma3.0 && ls -R . 2>/dev/null | head -30)",
+      "Read(//Users/asullivan/SCEECSFellowship/Columbia/PWN/MHD/farzone_wind/2026-09-26_chi0_sigma3.0/**)",
+      "Bash(cd /Users/asullivan/SCEECSFellowship/Columbia/PWN/MHD/farzone_wind/2026-09-26_chi0_sigma3.0 && grep -E \"nx1|r_star|r_blend|sigma0|gamma_wind|gamma |theta0|frac_star|rho_surf|chi \" farzone_wind.athinput | head -20; ls bin | grep w_bcc | head -3)"
     ]
   }
 }

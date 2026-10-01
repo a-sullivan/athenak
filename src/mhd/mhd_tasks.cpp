@@ -72,7 +72,8 @@ void MHD::AssembleMHDTasks(std::map<std::string, std::shared_ptr<TaskList>> tl) 
   id.prol      = tl["stagen"]->AddTask(&MHD::Prolongate, this, id.recvb_shr);
   id.bcs       = tl["stagen"]->AddTask(&MHD::ApplyPhysicalBCs, this, id.prol);
   id.c2p       = tl["stagen"]->AddTask(&MHD::ConToPrim, this, id.bcs);
-  id.newdt     = tl["stagen"]->AddTask(&MHD::NewTimeStep, this, id.c2p);
+  id.end_reset = tl["stagen"]->AddTask(&MHD::EnforceReset, this, id.c2p);
+  id.newdt     = tl["stagen"]->AddTask(&MHD::NewTimeStep, this, id.end_reset);
 
   // assemble "after_stagen" task list
   id.csend = tl["after_stagen"]->AddTask(&MHD::ClearSend, this, none);
@@ -617,6 +618,18 @@ TaskStatus MHD::ConToPrim(Driver *pdrive, int stage) {
   int n2m1 = (indcs.nx2 > 1)? (indcs.nx2 + 2*ng - 1) : 0;
   int n3m1 = (indcs.nx3 > 1)? (indcs.nx3 + 2*ng - 1) : 0;
   peos->ConsToPrim(u0, b0, w0, bcc0, false, 0, n1m1, 0, n2m1, 0, n3m1);
+  return TaskStatus::complete;
+}
+
+//! \fn TaskList MHD::EnforceReset
+//! \brief Wrapper task list function to overwrite the primitive and conserved variables at the end of a timestep.
+//! This is called after ConToPrim to ensure no error in the conversion leaks into the converted variables
+TaskStatus MHD::EnforceReset(Driver *pdrive, int stage) {
+  Real beta_dt = (pdrive->beta[stage-1])*(pmy_pack->pmesh->dt);
+    // Add user reset source terms
+  if (pmy_pack->pmesh->pgen->user_reset_srcs) {
+    (pmy_pack->pmesh->pgen->user_reset_srcs_func)(pmy_pack->pmesh, beta_dt);
+  }
   return TaskStatus::complete;
 }
 

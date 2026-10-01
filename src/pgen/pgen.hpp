@@ -19,6 +19,7 @@ using ProblemFinalizeFnPtr = void (*)(ParameterInput *pin, Mesh *pm);
 using UserBoundaryFnPtr = void (*)(Mesh* pm);
 using UserSrctermFnPtr = void (*)(Mesh* pm, const Real bdt);
 using UserESrctermFnPtr = void (*)(Mesh* pm);
+using UserResetSrctermFnPtr = void (*)(Mesh* pm, const Real bdt);
 using UserRefinementFnPtr = void (*)(MeshBlockPack* pmbp);
 using UserHistoryFnPtr = void (*)(HistoryData *pdata, Mesh *pm);
 
@@ -44,6 +45,9 @@ class ProblemGenerator {
 
   bool user_esrcs = false;
 
+  // true if end of task list user reset function is 
+  bool user_reset_srcs = false;
+
   // true if user history outputs are specified
   bool user_hist;
 
@@ -57,6 +61,7 @@ class ProblemGenerator {
   UserBoundaryFnPtr user_bcs_func=nullptr;
   UserSrctermFnPtr user_srcs_func=nullptr;
   UserESrctermFnPtr user_esrcs_func=nullptr;
+  UserResetSrctermFnPtr user_reset_srcs_func = nullptr;
   UserRefinementFnPtr user_ref_func=nullptr;
   UserHistoryFnPtr user_hist_func=nullptr;
 

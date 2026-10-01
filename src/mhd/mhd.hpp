@@ -75,6 +75,7 @@ struct MHDTaskIDs {
   TaskID bcs;
   TaskID prol;
   TaskID c2p;
+  TaskID end_reset;
   TaskID newdt;
   TaskID csend;
   TaskID crecv;
@@ -215,6 +216,7 @@ class MHD {
   TaskStatus STSUpdateU(Driver *d, int stage);
   TaskStatus STSUpdateB(Driver *d, int stage);
   TaskStatus STSRefreshTimeStep(Driver *d, int stage);
+  TaskStatus EnforceReset(Driver *d, int stage);
   // ...in "after_stagen_tl" task list
   TaskStatus ClearSend(Driver *d, int stage);
   TaskStatus ClearRecv(Driver *d, int stage);  // also in Driver::Initialize

@@ -215,7 +215,8 @@ void A_vec_toroidal(Real x, Real y, Real z,
         A_theta = 1.0;
 
     } else if (fabs(costheta) < sin_chi ) {
-        A_theta = (2.0/M_PI)*asin(costheta/sintheta*cos_chi/sin_chi);
+        const Real cot_prod = (costheta/sintheta)*(cos_chi/sin_chi);
+        A_theta = (2.0/M_PI)*asin(fmax(-1.0, fmin(1.0, cot_prod)));
     } else {
         A_theta = -1.0;
     }
@@ -285,6 +286,121 @@ void Source(Mesh *pm, const Real dt) {
 
   const Real gamma_max = P.gamma_max;
 
+  par_for("pgen_b_x1", DevExeSpace(), 0,(pack->nmb_thispack-1), ks,ke, js,je, is,(ie+1),
+        KOKKOS_LAMBDA(const int m, const int k, const int j, const int ifc) {
+            const auto sz = size.d_view(m);
+            const auto dx1 = (sz.x1max-sz.x1min)/nx1;
+            const auto dx2 = (sz.x2max-sz.x2min)/nx2;
+            const auto dx3 = (sz.x3max-sz.x3min)/nx3;
+
+            const Real xf = sz.x1min + (ifc - is)*dx1; // x faces
+            const Real yc = sz.x2min + ((j - js) +0.5)*dx2; // y centers
+            const Real zc = sz.x3min + ((k - ks) +0.5)*dx3; // z centers
+
+            Real dx = xf - x0, dy = yc - y0, dz = zc -z0;
+
+            Real r = sqrt(dx*dx + dy*dy + dz*dz);
+
+            if(r < r_blend){ 
+                Real Ax, Ay, Az, Ay_zP, Ay_zM, Az_yP, Az_yM;
+
+                pw::A_vec_toroidal(xf, yc + 0.5*dx2, zc, x0, y0, z0, chi, B0,  r_star, r_interior, epsilon, Ax, Ay, Az); Az_yP = Az;
+                pw::A_vec_toroidal(xf, yc - 0.5*dx2, zc, x0, y0, z0, chi, B0,  r_star, r_interior, epsilon, Ax, Ay, Az); Az_yM = Az;
+                pw::A_vec_toroidal(xf, yc, zc + 0.5*dx3, x0, y0, z0, chi, B0,  r_star, r_interior, epsilon, Ax, Ay, Az); Ay_zP = Ay;
+                pw::A_vec_toroidal(xf, yc, zc - 0.5*dx3, x0, y0, z0, chi, B0,  r_star, r_interior, epsilon, Ax, Ay, Az); Ay_zM = Ay;
+
+                Real blend = (r_blend - r_star > 0.0) ? fmin((r_blend-r)/(r_blend-r_star),1.0) : 1.0;
+                Real blend_smooth = blend*blend*(3.0-2.0*blend);
+                bf.x1f(m, k, j, ifc) = blend_smooth*pw::Bx_from_A(Az_yP, Az_yM, Ay_zP, Ay_zM, dx2, dx3)+(1.0-blend_smooth)*bf.x1f(m, k, j, ifc);
+            }   
+   
+
+    });
+
+        // now y 
+    par_for("pgen_b_x2", DevExeSpace(), 0,(pack->nmb_thispack-1), ks,ke, js,(je+1), is,ie,
+    KOKKOS_LAMBDA(const int m, const int k, const int jfc, const int i) {
+            const auto sz = size.d_view(m);
+            const auto dx1 = (sz.x1max-sz.x1min)/nx1;
+            const auto dx2 = (sz.x2max-sz.x2min)/nx2;
+            const auto dx3 = (sz.x3max-sz.x3min)/nx3;
+
+            const Real xc = sz.x1min + ((i - is) +0.5)*dx1; // x centers
+            const Real yf = sz.x2min + (jfc - js)*dx2; // y centers
+            const Real zc = sz.x3min + ((k - ks) +0.5)*dx3; // z centers
+
+            Real dx = xc - x0, dy = yf - y0, dz = zc -z0;
+
+            Real r = sqrt(dx*dx + dy*dy + dz*dz);
+
+            if (r < r_blend){
+                Real Ax, Ay, Az, Ax_zP, Ax_zM, Az_xP, Az_xM;
+
+                pw::A_vec_toroidal(xc + 0.5*dx1, yf, zc, x0, y0, z0, chi, B0,  r_star, r_interior, epsilon, Ax, Ay, Az); Az_xP = Az;
+                pw::A_vec_toroidal(xc - 0.5*dx1, yf, zc, x0, y0, z0, chi, B0,  r_star, r_interior, epsilon, Ax, Ay, Az); Az_xM = Az;
+                pw::A_vec_toroidal(xc, yf, zc + 0.5*dx3, x0, y0, z0, chi, B0,  r_star, r_interior, epsilon, Ax, Ay, Az); Ax_zP = Ax;
+                pw::A_vec_toroidal(xc, yf, zc - 0.5*dx3, x0, y0, z0, chi, B0,  r_star, r_interior, epsilon, Ax, Ay, Az); Ax_zM = Ax;
+
+                Real blend = (r_blend - r_star > 0.0) ? fmin((r_blend-r)/(r_blend-r_star),1.0) : 1.0;
+                Real blend_smooth = blend*blend*(3.0-2.0*blend);
+                bf.x2f(m, k, jfc, i) = blend_smooth*pw::By_from_A(Ax_zP, Ax_zM, Az_xP, Az_xM, dx3, dx1)+(1.0-blend_smooth)*bf.x2f(m, k, jfc, i);
+            }       
+        
+
+    });
+
+    // now z 
+    par_for("pgen_b_x3", DevExeSpace(), 0,(pack->nmb_thispack-1), ks,(ke+1), js,je, is,ie,
+        KOKKOS_LAMBDA(const int m, const int kfc, const int j, const int i) {
+            const auto sz = size.d_view(m);
+            const auto dx1 = (sz.x1max-sz.x1min)/nx1;
+            const auto dx2 = (sz.x2max-sz.x2min)/nx2;
+            const auto dx3 = (sz.x3max-sz.x3min)/nx3;
+
+            const Real xc = sz.x1min + ((i - is) +0.5)*dx1; // x centers
+            const Real yc = sz.x2min + ((j - js) +0.5)*dx2; // y centers
+            const Real zf = sz.x3min + ((kfc - ks))*dx3; // z centers
+
+            Real dx = xc - x0, dy = yc - y0, dz = zf -z0;
+
+            Real r = sqrt(dx*dx + dy*dy + dz*dz);
+
+
+            if (r<r_blend){
+                Real Ax, Ay, Az, Ax_yP, Ax_yM, Ay_xP, Ay_xM;
+
+                pw::A_vec_toroidal(xc + 0.5*dx1, yc, zf, x0, y0, z0, chi, B0,  r_star, r_interior, epsilon, Ax, Ay, Az); Ay_xP = Ay;
+                pw::A_vec_toroidal(xc - 0.5*dx1, yc, zf, x0, y0, z0, chi, B0,  r_star, r_interior, epsilon, Ax, Ay, Az); Ay_xM = Ay;
+                pw::A_vec_toroidal(xc, yc + 0.5*dx2, zf , x0, y0, z0, chi, B0,  r_star, r_interior, epsilon, Ax, Ay, Az); Ax_yP = Ax;
+                pw::A_vec_toroidal(xc, yc - 0.5*dx2, zf , x0, y0, z0, chi, B0,  r_star, r_interior, epsilon, Ax, Ay, Az); Ax_yM = Ax;
+
+                Real blend = (r_blend - r_star > 0.0) ? fmin((r_blend-r)/(r_blend-r_star),1.0) : 1.0;
+                Real blend_smooth = blend*blend*(3.0-2.0*blend);
+                bf.x3f(m, kfc, j, i)  = blend_smooth*pw::Bz_from_A(Ay_xP, Ay_xM, Ax_yP, Ax_yM, dx1, dx2)+(1.0-blend_smooth)*bf.x3f(m, kfc, j, i);
+            } 
+            
+     
+
+        });
+        par_for("reset_flds", DevExeSpace(),
+                0, pack->nmb_thispack-1, ks,ke, js,je, is,ie,
+            KOKKOS_LAMBDA(const int m, const int k, const int j, const int i) {
+            // cell-centered B from the just-reset face fields
+            const auto sz = size.d_view(m);
+            Real xc = CellCenterX(i - is, nx1, sz.x1min, sz.x1max);
+            Real yc = CellCenterX(j - js, nx2, sz.x2min, sz.x2max);
+            Real zc = CellCenterX(k - ks, nx3, sz.x3min, sz.x3max);
+
+            Real dx = xc - x0, dy = yc - y0, dz = zc - z0;
+            Real r = sqrt(dx*dx + dy*dy + dz*dz);
+            if (r > r_blend) return;  
+            Real bx = 0.5*(bf.x1f(m,k,j,i) + bf.x1f(m,k,j,i+1));
+            Real by = 0.5*(bf.x2f(m,k,j,i) + bf.x2f(m,k,j+1,i));
+            Real bz = 0.5*(bf.x3f(m,k,j,i) + bf.x3f(m,k+1,j,i));
+            bcc0(m,IBX,k,j,i) = bx;
+            bcc0(m,IBY,k,j,i) = by;
+            bcc0(m,IBZ,k,j,i) = bz;
+        });
 
 
   par_for("reset_src", DevExeSpace(),
@@ -302,45 +418,45 @@ void Source(Mesh *pm, const Real dt) {
             const Real costheta = fmax(-1.0, fmin(1.0, dz/r));
             const Real sintheta = sqrt(fmax(1.0-costheta*costheta, 0.0));
             // assign SNR properties
-            if(r <= r_star){
-                // assign the floor based on the sigma floor, not on the actual density floor
-                // B0 is normalized by the chosen surface density rho_surf and sigma0 
-                Real B_sqr_loc = bcc0(m,IBX,k,j,i)*bcc0(m,IBX,k,j,i)+bcc0(m,IBY,k,j,i)*bcc0(m,IBY,k,j,i)+bcc0(m,IBZ,k,j,i)*bcc0(m,IBZ,k,j,i);
-                Real B_loc = sqrt(B_sqr_loc);
-                Real B_sqr = B_sqr_loc;
-                Real dfloor = fmax(dfloor_original, B_sqr/(sigma_max*gamma_wind*gamma_wind));
-                Real pfloor = fmax(pfloor_original, B_sqr/(2*gamma_wind*gamma_wind)*beta_min);
+            if (r > r_blend) return;
+            // assign the floor based on the sigma floor, not on the actual density floor
+            // B0 is normalized by the chosen surface density rho_surf and sigma0 
+            Real B_sqr_loc = bcc0(m,IBX,k,j,i)*bcc0(m,IBX,k,j,i)+bcc0(m,IBY,k,j,i)*bcc0(m,IBY,k,j,i)+bcc0(m,IBZ,k,j,i)*bcc0(m,IBZ,k,j,i);
+            Real B_loc = sqrt(B_sqr_loc);
+            Real B_sqr = B_sqr_loc;
+            Real dfloor = fmax(dfloor_original, B_sqr/(sigma_max*gamma_wind*gamma_wind));
+            Real pfloor = fmax(pfloor_original, B_sqr/(2*gamma_wind*gamma_wind)*beta_min);
 
-                Real f_tot = pw::f_tot_func(xc, yc, zc, x0, y0, z0, sigma0, B0, v_r_wind, r_star, r_interior, epsilon, theta0);
-                Real f_k = pw::f_k(xc, yc, zc, x0, y0, z0, B_loc, sigma0, B0, v_r_wind, r_star, r_interior, epsilon, theta0);
-                Real gamma_wind_set = gamma_wind;
-                Real d_set = fmax(dfloor, f_k/(gamma_wind_set*gamma_wind_set*v_r_wind));
+            Real f_tot = pw::f_tot_func(xc, yc, zc, x0, y0, z0, sigma0, B0, v_r_wind, r_star, r_interior, epsilon, theta0);
+            Real f_k = pw::f_k(xc, yc, zc, x0, y0, z0, B_loc, sigma0, B0, v_r_wind, r_star, r_interior, epsilon, theta0);
+            Real gamma_wind_set = gamma_wind;
+            Real d_set = fmax(dfloor, f_k/(gamma_wind_set*gamma_wind_set*v_r_wind));
 
-                const Real h = 1.0;
+            const Real h = 1.0;
 
-                Real B_sqr_env = SQR(B0*r_star*sintheta*h/r);        // unstriped envelope
-                Real gam2      = gamma_wind_set*gamma_wind_set;
-                Real b2_env    = B_sqr_env/gam2;                      // comoving
-                Real b2_loc    = B_sqr_loc/gam2;
+            Real B_sqr_env = SQR(B0*r_star*sintheta*h/r);        // unstriped envelope
+            Real gam2      = gamma_wind_set*gamma_wind_set;
+            Real b2_env    = B_sqr_env/gam2;                      // comoving
+            Real b2_loc    = B_sqr_loc/gam2;
 
-                Real p_set = fmax(pfloor, 0.5*(b2_env - b2_loc) + 0.5*beta0*b2_env);
-
-
-                Real dens = d_set;
-                Real pgas = p_set;
-                Real egas = pgas/(gamma_ad-1.0);
+            Real p_set = fmax(pfloor, 0.5*(b2_env - b2_loc) + 0.5*beta0*b2_env);
 
 
-                if (r > r_blend) return;
-                Real blend = (r_blend - r_star > 0.0) ? fmin((r_blend-r)/(r_blend-r_star),1.0) : 1.0;
-                Real blend_smooth = blend*blend*(3.0-2.0*blend);
-                w(m,IDN,k,j,i) = dens*blend_smooth+w(m,IDN,k,j,i)*(1.0-blend_smooth);
-                w(m,IVX,k,j,i) = v_r_wind*gamma_wind_set*dx/r*blend_smooth + w(m,IVX,k,j,i)*(1.0-blend_smooth);
-                w(m,IVY,k,j,i) = v_r_wind*gamma_wind_set*dy/r*blend_smooth + w(m,IVY,k,j,i)*(1.0-blend_smooth);
-                w(m,IVZ,k,j,i) = v_r_wind*gamma_wind_set*dz/r*blend_smooth + w(m,IVZ,k,j,i)*(1.0-blend_smooth);
-                w(m,IEN,k,j,i) = egas*blend_smooth + w(m,IEN,k,j,i)*(1.0-blend_smooth);
+            Real dens = d_set;
+            Real pgas = p_set;
+            Real egas = pgas/(gamma_ad-1.0);
 
-            }
+
+                
+            Real blend = (r_blend - r_star > 0.0) ? fmin((r_blend-r)/(r_blend-r_star),1.0) : 1.0;
+            Real blend_smooth = blend*blend*(3.0-2.0*blend);
+            w(m,IDN,k,j,i) = dens*blend_smooth+w(m,IDN,k,j,i)*(1.0-blend_smooth);
+            w(m,IVX,k,j,i) = v_r_wind*gamma_wind_set*dx/r*blend_smooth + w(m,IVX,k,j,i)*(1.0-blend_smooth);
+            w(m,IVY,k,j,i) = v_r_wind*gamma_wind_set*dy/r*blend_smooth + w(m,IVY,k,j,i)*(1.0-blend_smooth);
+            w(m,IVZ,k,j,i) = v_r_wind*gamma_wind_set*dz/r*blend_smooth + w(m,IVZ,k,j,i)*(1.0-blend_smooth);
+            w(m,IEN,k,j,i) = egas*blend_smooth + w(m,IEN,k,j,i)*(1.0-blend_smooth);
+
+            
             
   }); 
   
@@ -360,15 +476,9 @@ void Source(Mesh *pm, const Real dt) {
 
             Real dx = xc - x0, dy = yc - y0, dz = zc - z0;
             Real r = sqrt(dx*dx + dy*dy + dz*dz);
-            if (r > r_star) return;          // leave the exterior entirely to the solver
+            if (r > r_blend) return;          // leave the exterior entirely to the solver
 
-            // cell-centered B from the just-reset face fields
-            //Real bx = 0.5*(bf.x1f(m,k,j,i) + bf.x1f(m,k,j,i+1));
-            //Real by = 0.5*(bf.x2f(m,k,j,i) + bf.x2f(m,k,j+1,i));
-            //Real bz = 0.5*(bf.x3f(m,k,j,i) + bf.x3f(m,k+1,j,i));
-            //bcc0(m,IBX,k,j,i) = bx;
-            //bcc0(m,IBY,k,j,i) = by;
-            //bcc0(m,IBZ,k,j,i) = bz;
+            
 
             // read back the primitives the fluid loop just pinned, so there is a single
             // source of truth for the interior state
@@ -484,6 +594,10 @@ void Source(Mesh *pm, const Real dt) {
 
     }
 
+    void ResetMask(Mesh *pm, const Real dt){
+        Source(pm, dt);
+    }
+
 
 
 
@@ -494,8 +608,8 @@ void Source(Mesh *pm, const Real dt) {
 void ProblemGenerator::UserProblem(ParameterInput *pin, const bool restart){
 
     user_srcs = pin->GetOrAddBoolean("problem", "user_srcs", true);
-    user_esrcs = pin->GetOrAddBoolean("problem","user_esrcs",false); 
-
+    user_esrcs = pin->GetOrAddBoolean("problem","user_esrcs", false); 
+    user_reset_srcs = pin->GetOrAddBoolean("problem","user_reset_srcs", false); 
     // read the parameters from inside the input file
 
     // neutron star paremeters
@@ -772,4 +886,6 @@ void ProblemGenerator::UserProblem(ParameterInput *pin, const bool restart){
     if (user_srcs) user_srcs_func = &pw::Source;
 
     if (user_esrcs) user_esrcs_func = &pw::EfieldMask;
+
+    if (user_reset_srcs) user_reset_srcs_func = &pw::ResetMask;
 } 
