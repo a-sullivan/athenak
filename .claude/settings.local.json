@@ -17,7 +17,8 @@
       "Read(//Users/asullivan/SCEECSFellowship/Columbia/PWN/MHD/farzone_wind/**)",
       "Bash(cd /Users/asullivan/SCEECSFellowship/Columbia/PWN/MHD/farzone_wind/2026-09-26_chi0_sigma3.0 && ls -R . 2>/dev/null | head -30)",
       "Read(//Users/asullivan/SCEECSFellowship/Columbia/PWN/MHD/farzone_wind/2026-09-26_chi0_sigma3.0/**)",
-      "Bash(cd /Users/asullivan/SCEECSFellowship/Columbia/PWN/MHD/farzone_wind/2026-09-26_chi0_sigma3.0 && grep -E \"nx1|r_star|r_blend|sigma0|gamma_wind|gamma |theta0|frac_star|rho_surf|chi \" farzone_wind.athinput | head -20; ls bin | grep w_bcc | head -3)"
+      "Bash(cd /Users/asullivan/SCEECSFellowship/Columbia/PWN/MHD/farzone_wind/2026-09-26_chi0_sigma3.0 && grep -E \"nx1|r_star|r_blend|sigma0|gamma_wind|gamma |theta0|frac_star|rho_surf|chi \" farzone_wind.athinput | head -20; ls bin | grep w_bcc | head -3)",
+      "Bash(make -f src/CMakeFiles/athena.dir/build.make src/CMakeFiles/athena.dir/pgen/pulsar/farzone_wind.cpp.o)"
     ]
   }
 }
