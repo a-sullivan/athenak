@@ -3,28 +3,28 @@ basename  = split_monopole
 
 <mesh>
 nghost    = 4
-nx1       = 32
-x1min     = -10
-x1max     =  10
+nx1       = 128
+x1min     = -30
+x1max     =  30
 ix1_bc    = outflow
 ox1_bc    = outflow
 
-nx2       = 32
-x2min     = -10
-x2max     =  10
+nx2       = 128
+x2min     = -30
+x2max     =  30
 ix2_bc    = outflow
 ox2_bc    = outflow
 
-nx3       = 32
-x3min     = -10
-x3max     =  10
+nx3       = 128
+x3min     = -30
+x3max     =  30
 ix3_bc    = outflow
 ox3_bc    = outflow
 
 <meshblock>
-nx1       = 16
-nx2       = 16
-nx3       = 16
+nx1       = 64
+nx2       = 64
+nx3       = 64
 
 <coord>
 special_rel = true     # SR MHD metric helpers on (flat spacetime)
@@ -33,7 +33,7 @@ special_rel = true     # SR MHD metric helpers on (flat spacetime)
 evolution   = dynamic
 integrator  = rk2
 cfl_number  = 0.3
-tlim        = 10.1
+tlim        = 630.1
 
 <mhd>
 eos         = ideal
@@ -48,7 +48,7 @@ sigma_max = 100.0
 
 <problem>
 pgen_name    = split_monopole
-user_srcs    = false
+user_srcs    = true
 
 # --- geometry ---
 x0           = 0.0 
@@ -57,19 +57,19 @@ z0           = 0.0
 
 
 # --- pulsar ---
-Omega   = 0.0    # solid-body rate inside corotation
-r_star = 5 # radius of the neutron star 
-rho0 = 1.0e-8 # density in the whole region
-p0 = 3.0e-11 #pressure in the whole region
-t_ramp  = 0.0    # spin-up timescale (smoothstep 0→Omega over this time); 0 = instant
-
+Omega   = 0.1    # solid-body rate inside corotation
+r_star = 2.0 # radius of the neutron star 
+rho0 = 1.0e-8 # density in the SNR (not currently used)
+p0 = 3.0e-11 #pressure in SNR (not currently used)
+t_ramp  = 20.0    # spin-up timescale (smoothstep 0→Omega over this time); 0 = instant
+rho_surf = 1.0 #density at the surface of the neutron star
 
 # --- magnetosphere ---
-sigma0           = 10.0    # magnetization
-delta = 0.1  # current sheet thickness
+sigma0           = 100.0    # magnetization
+delta = 0.4  # current sheet thickness
 
 #----regulatization ---
-frac_star = 0.5 #fraction of the star that is not set by regulatization
+frac_star = 0.2 #fraction of the star that is not set by regulatization
 
 # ---------------- Outputs ----------------
 <output1>

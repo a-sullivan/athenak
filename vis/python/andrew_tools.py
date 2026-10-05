@@ -2,7 +2,19 @@ import sys
 import numpy as np
 from scipy.interpolate import RegularGridInterpolator
 import matplotlib.pyplot as plt
+
+import glob, os, re, subprocess
+path = subprocess.run("module load ffmpeg && echo $PATH", shell=True,
+                      capture_output=True, text=True,
+                      executable="/bin/bash").stdout.strip().splitlines()[-1]
+os.environ["PATH"] = path
 desiredfontsize=18
+plt.rcParams.update({
+    "font.family": "serif",
+    "font.serif": ["cmr10", "Computer Modern Roman"],
+    "mathtext.fontset": "cm",
+    "axes.formatter.use_mathtext": True,  # cmr10 has no minus sign, so tick labels need this
+})
 
 
 def plot_domain_slice(mb_data_var, mb_geometry, n_mbs, y_target=0.0, cmap ='viridis', xmin_global=-10., xmax_global=10., zmin_global=-10., zmax_global=10.):
