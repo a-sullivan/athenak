@@ -69,6 +69,7 @@ struct Params {
     Real gamma_wind;
     Real v_r_wind;
     bool cold_sheet;
+    bool reset_b;
 
     //Regularization
     Real b;
@@ -92,6 +93,30 @@ struct Params {
 };
 static Params P;
 
+// Angular shape of A_theta (dimensionless).  B_phi = B0*r_star*A_theta/r.
+KOKKOS_INLINE_FUNCTION
+Real A_theta_shape(Real costheta, Real sintheta, Real chi, Real b, Real theta0) {
+    const Real sin_chi     = sin(chi);
+    const Real cos_chi     = cos(chi);
+    const Real cos_theta0  = cos(theta0);
+    const Real sin2_theta0 = SQR(sin(theta0));
+    const Real s2          = fmax(1.0 - costheta*costheta, 0.0);
+
+    if (costheta > cos_theta0) {                       // north polar cap
+        return sintheta*sqrt(1.0 + b/sin2_theta0);
+    } else if (costheta >= sin_chi) {                  // north mid-latitudes
+        return sqrt(s2 + b);
+    } else if (fabs(costheta) < sin_chi) {             // current-sheet wedge
+        const Real cot_prod = (costheta/sintheta)*(cos_chi/sin_chi);
+        return (2.0/M_PI)*asin(fmax(-1.0, fmin(1.0, cot_prod)))*sqrt(s2 + b);
+    } else if (costheta >= -cos_theta0) {              // south mid-latitudes
+        return -sqrt(s2 + b);
+    } else {                                           // south polar cap
+        return -sintheta*sqrt(1.0 + b/sin2_theta0);
+    }
+}
+
+
 KOKKOS_INLINE_FUNCTION 
 void E_analytic(Real x, Real y, Real z,
            Real x0, Real y0, Real z0, 
@@ -112,32 +137,12 @@ void E_analytic(Real x, Real y, Real z,
     const Real r_cyl = sqrt(fmax(x_r*x_r+y_r*y_r, r_min*r_min));
     // Now let me define the polar shape g(theta)
     // first define some helper variables
-    const Real sin_chi = sin(chi);
-    const Real cos_chi = cos(chi);
-    const Real cos_theta0 = cos(theta0);
-    const Real sin_theta0 = sin(theta0);
-    const Real sin2_theta0 = SQR(sin_theta0);
+
 
 
     const Real g = 1.0;
 
-    Real A_theta;
-
-
-
-    if (costheta > cos_theta0){
-        A_theta = sintheta*sqrt(1+b/sin2_theta0);
-    } else if (costheta >= sin_chi) {
-        A_theta = sqrt(fmax(1.0-costheta*costheta, 0.0)+b);
-    } else if (fabs(costheta) < sin_chi ) {
-        const Real cot_prod = (costheta/sintheta)*(cos_chi/sin_chi);
-        A_theta = (2.0/M_PI)*asin(fmax(-1.0, fmin(1.0, cot_prod)))*sqrt(fmax(1.0-costheta*costheta, 0.0)+b);
-    } else if  (costheta <= -sin_chi && costheta >= -cos_theta0){
-        A_theta = -sqrt(fmax(1.0-costheta*costheta, 0.0)+b);
-    } else {
-        A_theta = -sintheta*sqrt(1+b/sin2_theta0);
-    }
-
+    Real A_theta = A_theta_shape(costheta, sintheta, chi, b, theta0);
 
     Ex = A_theta*costheta*x_r/r_cyl*g*B0*r_star/r*v_r_wind;
     Ey = A_theta*costheta*y_r/r_cyl*g*B0*r_star/r*v_r_wind;
@@ -190,6 +195,36 @@ Real f_k(Real x, Real y, Real z,
 
 
 KOKKOS_INLINE_FUNCTION
+Real f_k_analytic(Real x, Real y, Real z,
+           Real x0, Real y0, Real z0, 
+           Real B_theta, 
+           Real sigma, Real B0, Real v_r,
+           Real r_star, Real r_interior, Real epsilon, 
+           Real b, Real chi, Real theta0) {
+
+            const Real x_r = x - x0, y_r = y - y0, z_r = z - z0;
+
+            const Real r_min = epsilon*r_interior;
+            const Real r = sqrt(fmax(x_r*x_r+y_r*y_r+z_r*z_r, r_min*r_min));
+
+
+
+            const Real costheta = fmax(-1.0, fmin(1.0, z_r/r));
+            const Real sintheta = sqrt(fmax(1.0-costheta*costheta, 0.0));
+
+            const Real A_th = A_theta_shape(costheta, sintheta, chi, b, theta0);
+
+            const Real f_b_num = f_b(v_r, B0);
+
+            const Real f_tot_num = f_tot_func(x, y, z, x0, y0, z0, sigma, B0, v_r, r_star, r_interior, epsilon, b);
+
+            return f_tot_num - f_b_num*SQR(r_star/r)*SQR(A_th);
+
+
+           }
+
+
+KOKKOS_INLINE_FUNCTION
 void A_vec_toroidal(Real x, Real y, Real z,
            Real x0, Real y0, Real z0, 
            Real chi, Real B0,  Real r_star, Real r_interior, Real epsilon, 
@@ -210,31 +245,12 @@ void A_vec_toroidal(Real x, Real y, Real z,
     const Real r_cyl = sqrt(fmax(x_r*x_r+y_r*y_r, r_min*r_min));
     // Now let me define the polar shape g(theta)
     // first define some helper variables
-    const Real sin_chi = sin(chi);
-    const Real cos_chi = cos(chi);
-    const Real cos_theta0 = cos(theta0);
-    const Real sin_theta0 = sin(theta0);
-    const Real sin2_theta0 = SQR(sin_theta0);
+
     
 
     const Real g=1.0;
 
-    Real A_theta;
-
-
-
-    if (costheta > cos_theta0){
-        A_theta = sintheta*sqrt(1+b/sin2_theta0);
-    } else if (costheta >= sin_chi) {
-        A_theta = sqrt(fmax(1.0-costheta*costheta, 0.0)+b);
-    } else if (fabs(costheta) < sin_chi ) {
-        const Real cot_prod = (costheta/sintheta)*(cos_chi/sin_chi);
-        A_theta = (2.0/M_PI)*asin(fmax(-1.0, fmin(1.0, cot_prod)))*sqrt(fmax(1.0-costheta*costheta, 0.0)+b);
-    } else if  (costheta <= -sin_chi && costheta >= -cos_theta0){
-        A_theta = -sqrt(fmax(1.0-costheta*costheta, 0.0)+b);
-    } else {
-        A_theta = -sintheta*sqrt(1+b/sin2_theta0);
-    }
+    Real A_theta = A_theta_shape(costheta, sintheta, chi, b, theta0);
 
 
     Ax = A_theta*costheta*x_r/r_cyl*g*B0*r_star;
@@ -301,6 +317,9 @@ void Source(Mesh *pm, const Real dt) {
 
 
   const Real gamma_max = P.gamma_max;
+  const bool reset_b = P.reset_b;
+
+  if (reset_b){
 
   par_for("pgen_b_x1", DevExeSpace(), 0,(pack->nmb_thispack-1), ks,ke, js,je, is,(ie+1),
         KOKKOS_LAMBDA(const int m, const int k, const int j, const int ifc) {
@@ -418,7 +437,7 @@ void Source(Mesh *pm, const Real dt) {
             bcc0(m,IBZ,k,j,i) = bz;
         });
 
-
+  }
   par_for("reset_src", DevExeSpace(),
           0, pack->nmb_thispack-1, ks,ke, js,je, is,ie,
   KOKKOS_LAMBDA(const int m, const int k, const int j, const int i) {
@@ -444,7 +463,7 @@ void Source(Mesh *pm, const Real dt) {
             Real pfloor = fmax(pfloor_original, B_sqr/(2*gamma_wind*gamma_wind)*beta_min);
 
             Real f_tot = pw::f_tot_func(xc, yc, zc, x0, y0, z0, sigma0, B0, v_r_wind, r_star, r_interior, epsilon, b);
-            Real f_k = pw::f_k(xc, yc, zc, x0, y0, z0, B_loc, sigma0, B0, v_r_wind, r_star, r_interior, epsilon, b);
+            Real f_k = pw::f_k_analytic(xc, yc, zc, x0, y0, z0, B_loc, sigma0, B0, v_r_wind, r_star, r_interior, epsilon, b, chi, theta0);
             Real gamma_wind_set = gamma_wind;
 
             Real h =1.0;
@@ -630,9 +649,9 @@ void Source(Mesh *pm, const Real dt) {
 // define the problem generator
 void ProblemGenerator::UserProblem(ParameterInput *pin, const bool restart){
 
-    user_srcs = pin->GetOrAddBoolean("problem", "user_srcs", true);
-    user_esrcs = pin->GetOrAddBoolean("problem","user_esrcs", false); 
-    user_reset_srcs = pin->GetOrAddBoolean("problem","user_reset_srcs", false); 
+    user_srcs = pin->GetOrAddBoolean("problem", "user_srcs", false);
+    user_esrcs = pin->GetOrAddBoolean("problem","user_esrcs", true); 
+    user_reset_srcs = pin->GetOrAddBoolean("problem","user_reset_srcs", true); 
     // read the parameters from inside the input file
 
     // neutron star paremeters
@@ -644,7 +663,8 @@ void ProblemGenerator::UserProblem(ParameterInput *pin, const bool restart){
 
     pw::P.cold_sheet = pin->GetOrAddBoolean("problem", "cold_sheet", true);
 
-
+    // resets b inside the reset_srcs mask
+    pw::P.reset_b = pin->GetOrAddBoolean("problem", "reset_b", true);
 
     if (pw::P.r_blend < pw::P.r_star) {
         std::cout << "### FATAL ERROR in " << __FILE__ << " at line " << __LINE__ << std::endl
@@ -716,7 +736,6 @@ void ProblemGenerator::UserProblem(ParameterInput *pin, const bool restart){
 
         const Real r_star = pw::P.r_star;
         const Real r_blend = pw::P.r_blend;
-        
         
         
         const Real b = pw::P.b;
@@ -871,7 +890,7 @@ void ProblemGenerator::UserProblem(ParameterInput *pin, const bool restart){
             Real pfloor = fmax(pfloor_original, B_sqr/(2.0*gamma_wind*gamma_wind)*beta_min);
 
             Real f_tot = pw::f_tot_func(xc, yc, zc, x0, y0, z0, sigma0, B0, v_r_wind, r_star, r_interior, epsilon, b);
-            Real f_k = pw::f_k(xc, yc, zc, x0, y0, z0, B_loc, sigma0, B0, v_r_wind, r_star, r_interior, epsilon, b);
+            Real f_k = pw::f_k_analytic(xc, yc, zc, x0, y0, z0, B_loc, sigma0, B0, v_r_wind, r_star, r_interior, epsilon, b, chi, theta0);
             Real gamma_wind_set = gamma_wind;
 
             const Real h = 1.0;
