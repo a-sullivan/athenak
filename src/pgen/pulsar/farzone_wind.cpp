@@ -70,6 +70,7 @@ struct Params {
     Real v_r_wind;
     bool cold_sheet;
     bool reset_b;
+    bool blend_b;
 
     //Regularization
     Real b;
@@ -318,6 +319,7 @@ void Source(Mesh *pm, const Real dt) {
 
   const Real gamma_max = P.gamma_max;
   const bool reset_b = P.reset_b;
+  const bool blend_b = P.blend_b;
 
   if (reset_b){
 
@@ -336,14 +338,20 @@ void Source(Mesh *pm, const Real dt) {
 
             Real r = sqrt(dx*dx + dy*dy + dz*dz);
 
-            if(r < r_blend){ 
+            Real r_blend_b;
+            if (blend_b) {
+                r_blend_b = r_blend;
+            } else {
+                r_blend_b = r_star;
+            }
+            if(r < r_blend_b){ 
                 Real Ax, Ay, Az, Ay_zP, Ay_zM, Az_yP, Az_yM;
 
                 pw::A_vec_toroidal(xf, yc + 0.5*dx2, zc, x0, y0, z0, chi, B0,  r_star, r_interior, epsilon, b, theta0, Ax, Ay, Az); Az_yP = Az;
                 pw::A_vec_toroidal(xf, yc - 0.5*dx2, zc, x0, y0, z0, chi, B0,  r_star, r_interior, epsilon, b, theta0, Ax, Ay, Az); Az_yM = Az;
                 pw::A_vec_toroidal(xf, yc, zc + 0.5*dx3, x0, y0, z0, chi, B0,  r_star, r_interior, epsilon, b, theta0, Ax, Ay, Az); Ay_zP = Ay;
                 pw::A_vec_toroidal(xf, yc, zc - 0.5*dx3, x0, y0, z0, chi, B0,  r_star, r_interior, epsilon, b, theta0, Ax, Ay, Az); Ay_zM = Ay;
-
+                
                 Real blend = (r_blend - r_star > 0.0) ? fmin((r_blend-r)/(r_blend-r_star),1.0) : 1.0;
                 Real blend_smooth = blend*blend*(3.0-2.0*blend);
                 bf.x1f(m, k, j, ifc) = blend_smooth*pw::Bx_from_A(Az_yP, Az_yM, Ay_zP, Ay_zM, dx2, dx3)+(1.0-blend_smooth)*bf.x1f(m, k, j, ifc);
@@ -368,7 +376,14 @@ void Source(Mesh *pm, const Real dt) {
 
             Real r = sqrt(dx*dx + dy*dy + dz*dz);
 
-            if (r < r_blend){
+            Real r_blend_b;
+            if (blend_b) {
+                r_blend_b = r_blend;
+            } else {
+                r_blend_b = r_star;
+            }
+
+            if (r < r_blend_b){
                 Real Ax, Ay, Az, Ax_zP, Ax_zM, Az_xP, Az_xM;
 
                 pw::A_vec_toroidal(xc + 0.5*dx1, yf, zc, x0, y0, z0, chi, B0,  r_star, r_interior, epsilon, b, theta0, Ax, Ay, Az); Az_xP = Az;
@@ -400,8 +415,14 @@ void Source(Mesh *pm, const Real dt) {
 
             Real r = sqrt(dx*dx + dy*dy + dz*dz);
 
+            Real r_blend_b;
+            if (blend_b) {
+                r_blend_b = r_blend;
+            } else {
+                r_blend_b = r_star;
+            }
 
-            if (r<r_blend){
+            if (r<r_blend_b){
                 Real Ax, Ay, Az, Ax_yP, Ax_yM, Ay_xP, Ay_xM;
 
                 pw::A_vec_toroidal(xc + 0.5*dx1, yc, zf, x0, y0, z0, chi, B0,  r_star, r_interior, epsilon, b, theta0, Ax, Ay, Az); Ay_xP = Ay;
@@ -665,6 +686,8 @@ void ProblemGenerator::UserProblem(ParameterInput *pin, const bool restart){
 
     // resets b inside the reset_srcs mask
     pw::P.reset_b = pin->GetOrAddBoolean("problem", "reset_b", true);
+
+    pw::P.blend_b = pin->GetOrAddBoolean("problem", "blend_b", false);
 
     if (pw::P.r_blend < pw::P.r_star) {
         std::cout << "### FATAL ERROR in " << __FILE__ << " at line " << __LINE__ << std::endl
