@@ -94,17 +94,32 @@ struct Params {
 };
 static Params P;
 
+// |A_theta| inside the polar cap.  Linear + quadratic in sin(theta), with the two
+// coefficients chosen so that BOTH the value and the slope match sqrt(sin^2+b) at
+// theta0 -- a C1 join instead of C0, which cuts the CT residual there ~4x.  Still
+// vanishes linearly on the axis, so B_phi ~ r_cyl and J_z stays finite.
+// Divides by sin(theta0): only call from the cap branches, which are unreachable
+// when theta0 == 0.
+KOKKOS_INLINE_FUNCTION
+Real A_cap(Real sintheta, Real s2, Real b, Real sin_theta0, Real sin2_theta0) {
+  const Real rt = sqrt(sin2_theta0 + b);
+  return sintheta*(sin2_theta0 + 2.0*b)/(sin_theta0*rt) - s2*b/(sin2_theta0*rt);
+}
+
+
+
 // Angular shape of A_theta (dimensionless).  B_phi = B0*r_star*A_theta/r.
 KOKKOS_INLINE_FUNCTION
 Real A_theta_shape(Real costheta, Real sintheta, Real chi, Real b, Real theta0) {
     const Real sin_chi     = sin(chi);
     const Real cos_chi     = cos(chi);
     const Real cos_theta0  = cos(theta0);
-    const Real sin2_theta0 = SQR(sin(theta0));
+    const Real sin_theta0  = sin(theta0);
+    const Real sin2_theta0 = SQR(sin_theta0);
     const Real s2          = fmax(1.0 - costheta*costheta, 0.0);
 
     if (costheta > cos_theta0) {                       // north polar cap
-        return sintheta*sqrt(1.0 + b/sin2_theta0);
+        return A_cap(sintheta, s2, b, sin_theta0, sin2_theta0);
     } else if (costheta >= sin_chi) {                  // north mid-latitudes
         return sqrt(s2 + b);
     } else if (fabs(costheta) < sin_chi) {             // current-sheet wedge
@@ -113,7 +128,7 @@ Real A_theta_shape(Real costheta, Real sintheta, Real chi, Real b, Real theta0) 
     } else if (costheta >= -cos_theta0) {              // south mid-latitudes
         return -sqrt(s2 + b);
     } else {                                           // south polar cap
-        return -sintheta*sqrt(1.0 + b/sin2_theta0);
+        return -A_cap(sintheta, s2, b, sin_theta0, sin2_theta0);
     }
 }
 

@@ -23,7 +23,11 @@
       "Bash(awk 'NR<=270 && /^TaskStatus MHD::/ {ln=NR; fn=$0} END{}' mhd_tasks.cpp)",
       "Bash(awk -F: '$1<275')",
       "Bash(rm -f src/CMakeFiles/athena.dir/pgen/pulsar/farzone_wind.cpp.o)",
-      "Bash(awk 'NR>420 && \\(/flx\\\\.x1e\\\\\\(m,|flx\\\\.x2e\\\\\\(m,|flx\\\\.x3e\\\\\\(m,/\\)' flux_correct_fc.cpp)"
+      "Bash(awk 'NR>420 && \\(/flx\\\\.x1e\\\\\\(m,|flx\\\\.x2e\\\\\\(m,|flx\\\\.x3e\\\\\\(m,/\\)' flux_correct_fc.cpp)",
+      "Bash(echo \"=== input ===\"; grep -nE \"user_srcs|user_esrcs|user_reset_srcs|^b |theta0|chi |gamma_wind|rho_surf|sigma0|r_star|r_blend|cold_sheet\" inputs/pulsar/farzone_wind.athinput; echo; echo \"=== f_k_analytic signature + body ===\"; sed -n '/Real f_k_analytic/,/^           }/p' src/pgen/pulsar/farzone_wind.cpp)"
+    ],
+    "additionalDirectories": [
+      "/Users/asullivan/Stanford/MHD/athenak_andrew/src/pgen/pulsar"
     ]
   }
 }
