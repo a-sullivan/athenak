@@ -3,28 +3,28 @@ basename  = farzone_wind
 
 <mesh>
 nghost    = 4
-nx1       = 64
-x1min     = -10
-x1max     =  10
+nx1       = 256
+x1min     = -20
+x1max     =  20
 ix1_bc    = outflow
 ox1_bc    = outflow
 
-nx2       = 64
-x2min     = -10
-x2max     =  10
+nx2       = 256
+x2min     = -20
+x2max     =  20
 ix2_bc    = outflow
 ox2_bc    = outflow
 
-nx3       = 64
-x3min     = -10
-x3max     =  10
+nx3       = 256
+x3min     = -20
+x3max     =  20
 ix3_bc    = outflow
 ox3_bc    = outflow
 
 <meshblock>
-nx1       = 64
-nx2       = 64
-nx3       = 64
+nx1       = 128
+nx2       = 128
+nx3       = 128
 
 <coord>
 special_rel = true     # SR MHD metric helpers on (flat spacetime)
@@ -33,7 +33,7 @@ special_rel = true     # SR MHD metric helpers on (flat spacetime)
 evolution   = dynamic
 integrator  = rk2
 cfl_number  = 0.3
-tlim        = 50.1
+tlim        = 100.1
 
 <mhd>
 eos         = ideal
@@ -44,13 +44,14 @@ dfloor      = 1.0e-8
 pfloor      = 3.0e-11
 fofc        = true
 gamma_max   = 100.0
-sigma_max = 1000.0
+sigma_max = 10000.0
 beta_min  = 1.0e-05
 
 <problem>
 pgen_name    = farzone_wind
-user_srcs    = true
+user_srcs    = false
 user_esrcs   = true
+user_reset_srcs = true
 
 # --- geometry ---
 x0           = 0.0 
@@ -59,21 +60,21 @@ z0           = 0.0
 
 
 # --- pulsar wind ---
-
 r_star = 4.0 # radius of inner wind zone
 r_blend = 6.0 # radius over which the star solution is blended with the outside
 rho_surf = 1.0 # density at the star surface
 gamma_wind = 5.0 # bulk lorentz factor of wind
-
-
+cold_sheet = true # whether you add pressure to the sheet or not
 
 # --- magnetosphere ---
-sigma0           = 3.0    # magnetization
+sigma0           = 10.0    # magnetization
 chi = 0.0  # current sheet thickness
-theta0 = 0.0
+beta0 = 1.0e-3 #plasma beta in wind
 
 #----regulatization ---
 frac_star = 0.3 #fraction of the star that is not set by regulatization
+theta0 = 0.174532925199 # angle over which magnetic flux increases around pole
+b = 0.03 # additional momentum flux added to prevent flux from going to zero at pole
 
 # ---------------- Outputs ----------------
 <output1>
