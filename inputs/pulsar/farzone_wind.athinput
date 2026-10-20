@@ -70,6 +70,7 @@ cold_sheet = true # whether you add pressure to the sheet or not
 sigma0           = 10.0    # magnetization
 chi = 0.0  # current sheet thickness
 beta0 = 1.0e-3 #plasma beta in wind
+edge_width = 0.0 # width of edge of current sheet region, should be << tan(chi)
 
 #----regulatization ---
 frac_star = 0.3 #fraction of the star that is not set by regulatization

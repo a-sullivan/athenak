@@ -465,7 +465,7 @@ def calculate_momentum_flux(rho, egas, ux, uy, uz, bx, by, bz, gamma_ad = 4.0/3.
 
     P = egas*(gamma_ad-1.0)
     Gamma = np.sqrt(1.0+(u_sqr))
-    sigma0=10.0
+
     B_sqr = bx**2+ by**2+bz**2
     vx=ux/Gamma
     vy=uy/Gamma
@@ -495,6 +495,21 @@ def calculate_sigma(rho, egas, ux, uy, uz, bx, by, bz, gamma_ad = 4.0/3.0):
     sigma = B_sqr/(rho*Gamma**2)
     return sigma
 
+def calculate_beta(rho, egas, ux, uy, uz, bx, by, bz, gamma_ad = 4.0/3.0):
+    u_sqr = ux**2+uy**2+uz**2
+    
+    P = egas*(gamma_ad-1.0)
+    Gamma = np.sqrt(1.0+(u_sqr))
+    
+    B_sqr = bx**2+ by**2+bz**2
+    vx=ux/Gamma
+    vy=uy/Gamma
+    vz=uz/Gamma
+    #v_wind=np.sqrt(u_sqr)/Gamma
+    #v_dot_B = vx*bx+vy*by+bz*vz
+    beta = 2.0*(P*Gamma**2)/B_sqr
+    return beta
+
 def calculate_bsqr(rho, egas, ux, uy, uz, bx, by, bz, gamma_ad = 4.0/3.0):
     u_sqr = ux**2+uy**2+uz**2
     
@@ -521,16 +536,18 @@ def calculate_momentum_flux_model(x, y, z, sigma0=10.0, rho_surf=1.0, Gamma_wind
     f_r = (1.0+sigma0)/sigma0*v_wind*B0**2*(r_star/r)**2*(sintheta**2+b)
     return f_r, 0.0, 0.0
 
-def calculate_momentum_flux_model_rtheta(theta, r, sigma0=10.0, rho_surf=1.0, Gamma_wind = 5.0, r_star = 3.0, b=0.03):
+def calculate_momentum_flux_model_rtheta(theta, r, sigma0=10.0, rho_surf=1.0, Gamma_wind = 5.0, r_star = 3.0, b=0.03, sin4=False):
     v_wind = np.sqrt(1.0-1.0/Gamma_wind**2)
     B0=np.sqrt(rho_surf*sigma0*Gamma_wind**2) 
 
     sintheta = np.sin(theta)
-    
-    f_r = (1.0+sigma0)/sigma0*v_wind*B0**2*(r_star/r)**2*(sintheta**2+b)
+    if sin4:
+        f_r = (1.0+sigma0)/sigma0*v_wind*B0**2*(r_star/r)**2*(sintheta**4+b)
+    else:
+        f_r = (1.0+sigma0)/sigma0*v_wind*B0**2*(r_star/r)**2*(sintheta**2+b)
     return f_r, 0.0, 0.0
 
-def calculate_sigma_model(theta, r, sigma0=10.0, chi=0.0, theta0=0.17, b=0.03):
+def calculate_sigma_model(theta, r, sigma0=10.0, chi=0.0, theta0=0.17, b=0.03, sin4=False):
     """sigma0 everywhere except the band |theta - pi/2| < chi, where it drops
     to 4 sigma0 arcsin^2(cot(theta) cot(chi))/pi^2.  Accepts scalar or array
     theta; returns the same shape."""
@@ -540,9 +557,13 @@ def calculate_sigma_model(theta, r, sigma0=10.0, chi=0.0, theta0=0.17, b=0.03):
     band = np.abs(theta - np.pi/2.0) < chi
 
     if theta0>0 and pole.any():
-        th = theta[pole]
-        fm =np.sin(th)**2*(1+b/np.sin(theta0)**2)
-        ftot = (1.+sigma0)/sigma0*(np.sin(th)**2+b)
+        th = theta[pole]       
+        if sin4:
+            fm =np.sin(th)**4*(1+b/np.sin(theta0)**4)
+            ftot = (1.+sigma0)/sigma0*(np.sin(th)**4+b)
+        else:
+            fm =np.sin(th)**2*(1+b/np.sin(theta0)**2)
+            ftot = (1.+sigma0)/sigma0*(np.sin(th)**2+b)
         arg = fm/(ftot-fm)
         sigma[pole] = arg
 
@@ -554,16 +575,16 @@ def calculate_sigma_model(theta, r, sigma0=10.0, chi=0.0, theta0=0.17, b=0.03):
 
     return sigma if sigma.ndim else float(sigma)
 
-def calculate_rho_model(theta, r, sigma0=10.0, rho_surf=1.0, r_star = 4.0, Gamma = 5.0, chi=0.0,  theta0=0.17, b=0.03):
-    f_r, f_theta, f_phi = calculate_momentum_flux_model_rtheta(theta, r, sigma0=sigma0, rho_surf=rho_surf, Gamma_wind = Gamma, r_star = r_star, b=b)
-    sigma =  calculate_sigma_model(theta, r, sigma0=sigma0, chi=chi, theta0=theta0, b=b)
+def calculate_rho_model(theta, r, sigma0=10.0, rho_surf=1.0, r_star = 4.0, Gamma = 5.0, chi=0.0,  theta0=0.17, b=0.03, sin4=False):
+    f_r, f_theta, f_phi = calculate_momentum_flux_model_rtheta(theta, r, sigma0=sigma0, rho_surf=rho_surf, Gamma_wind = Gamma, r_star = r_star, b=b, sin4=sin4)
+    sigma =  calculate_sigma_model(theta, r, sigma0=sigma0, chi=chi, theta0=theta0, b=b, sin4=sin4)
 
     f_k = f_r/(1+sigma)
     v_w = np.sqrt(1.0-1.0/Gamma**2)
     return f_k/(Gamma**2*v_w)
 
-def calculate_bsqr_model(theta, r, sigma0=10.0, rho_surf=1.0, r_star = 4.0, Gamma = 5.0, chi=0.0,  theta0=0.17, b=0.03):
-    f_r, f_theta, f_phi = calculate_momentum_flux_model_rtheta(theta, r, sigma0=sigma0, rho_surf=rho_surf, Gamma_wind = Gamma, r_star = r_star, b=b)
+def calculate_bsqr_model(theta, r, sigma0=10.0, rho_surf=1.0, r_star = 4.0, Gamma = 5.0, chi=0.0,  theta0=0.17, b=0.03, sin4=False):
+    f_r, f_theta, f_phi = calculate_momentum_flux_model_rtheta(theta, r, sigma0=sigma0, rho_surf=rho_surf, Gamma_wind = Gamma, r_star = r_star, b=b, sin4=sin4)
     sigma =  calculate_sigma_model(theta, r, sigma0=sigma0, chi=chi, theta0=theta0, b=b)
 
     f_m = sigma*f_r/(1+sigma)
@@ -856,6 +877,33 @@ def sigma_vs_theta(rho, egas, ux, uy, uz, bx, by, bz, mb_geometry, radii,
     
     return theta, sigma_avg, count 
 
+def beta_vs_theta(rho, egas, ux, uy, uz, bx, by, bz, mb_geometry, radii,
+                         n_theta=32, dr=None, gamma_ad=4.0/3.0):
+    """dL/dOmega(theta) = r^2 <F_r>_phi on shells at each radius in radii.
+
+    F is the lab-frame energy flux from calculate_momentum_flux (enthalpy +
+    Poynting, rest mass included).  ux, uy, uz are the spatial 4-velocity
+    components (velx/vely/velz in the SR bin output).
+
+    Also returns L(r) = 2 pi * integral of dL/dOmega sin(theta) dtheta.  For a
+    steady wind it should be the same at every radius, which makes it a quick
+    sanity check.
+    """
+    radii = np.atleast_1d(np.asarray(radii, dtype=float))
+
+    beta = []
+    for n in range(len(rho)):
+        Z, Y, X = mb_cell_centers(mb_geometry, n, np.shape(rho[n]))
+        beta0 = calculate_beta(rho[n], egas[n], ux[n], uy[n], uz[n],
+                                             bx[n], by[n], bz[n], gamma_ad=gamma_ad)
+        R = np.sqrt(X**2 + Y**2 + Z**2)
+        beta.append(beta0)
+
+    theta, beta_avg, count = shell_average_vs_theta(beta, mb_geometry, radii,
+                                                  n_theta=n_theta, dr=dr)
+    
+    return theta, beta_avg, count 
+
 def rho_vs_theta(rho, egas, ux, uy, uz, bx, by, bz, mb_geometry, radii,
                          n_theta=32, dr=None, gamma_ad=4.0/3.0):
     """r^2 rho = r^2 rho on shells at each radius in radii.
@@ -932,7 +980,7 @@ def bsqr_vs_theta(rho, egas, ux, uy, uz, bx, by, bz, mb_geometry, radii,
     return theta, bsqr_r_sqr, count
 
 def plot_vs_theta(theta, profiles, radii, ylabel="", logy=False,
-                  save=False, savename="vs_theta.pdf", dpi=100, ylim=None, model=None, t=None,
+                  save=False, show=False, savename="vs_theta.pdf", dpi=100, ylim=None, model=None, t=None,
                   t_loc=(0.05, 0.95)):
     """One curve per radius; profiles is (n_r, n_theta)."""
     fig, ax = plt.subplots(figsize=(8, 6))
@@ -955,6 +1003,7 @@ def plot_vs_theta(theta, profiles, radii, ylabel="", logy=False,
     ax.set_xlim(0, np.pi)
     ax.set_xticks([0, np.pi/4, np.pi/2, 3*np.pi/4, np.pi])
     ax.set_xticklabels(["0", r"$\pi/4$", r"$\pi/2$", r"$3\pi/4$", r"$\pi$"])
+    ax.legend(loc='upper right', fontsize=0.8*desiredfontsize) 
     
 
 
@@ -966,6 +1015,11 @@ def plot_vs_theta(theta, profiles, radii, ylabel="", logy=False,
     ax.legend()
     if save:
         fig.savefig(savename, dpi=dpi)
+
+    if not show:
+        plt.close(fig)
+        return None, None
+
     return fig, ax
 
 
