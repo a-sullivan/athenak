@@ -264,8 +264,8 @@ Real f_k_analytic(Real x, Real y, Real z,
            Real x0, Real y0, Real z0, 
            Real B_theta, 
            Real sigma, Real B0, Real v_r,
-           Real r_star, Real r_interior, Real epsilon, bool sin4, 
-           Real b, Real chi, Real theta0, Real edge_width) {
+           Real r_star, Real r_interior, Real epsilon, 
+           Real b, Real chi, Real theta0, Real edge_width, bool sin4) {
 
             const Real x_r = x - x0, y_r = y - y0, z_r = z - z0;
 
@@ -538,7 +538,8 @@ void Source(Mesh *pm, const Real dt) {
             Real rmin = epsilon*r_interior;
             Real r = sqrt(fmax(dx*dx + dy*dy + dz*dz, rmin*rmin));
             const Real costheta = fmax(-1.0, fmin(1.0, dz/r));
-            const Real sintheta = sqrt(fmax(1.0-costheta*costheta, 0.0));
+            const Real sin2_theta = fmax(1.0-costheta*costheta, 0.0);
+            const Real sintheta = sqrt(sin2_theta);
             // assign SNR properties
             if (r > r_blend) return;
             // assign the floor based on the sigma floor, not on the actual density floor
@@ -554,14 +555,20 @@ void Source(Mesh *pm, const Real dt) {
             Real gamma_wind_set = gamma_wind;
 
             Real h =1.0;
-            Real B_sqr_env = SQR(B0*r_star*h/r)*(sintheta*sintheta+b);        // unstriped envelope
+            Real B_sqr_env;
+            if (sin4){
+                B_sqr_env = SQR(B0*r_star*h/r)*(sin2_theta+b);
+            } else {
+                B_sqr_env = SQR(B0*r_star*h/r)*(SQR(sin2_theta)+b);
+            }
+   
             Real gam2      = gamma_wind_set*gamma_wind_set;
             Real b2_env    = B_sqr_env/gam2;                      // comoving
             Real b2_loc    = B_sqr_loc/gam2;
 
             Real p_set;
             if (cold_sheet){
-                p_set = fmax(pfloor, beta0*b2_env);
+                p_set = fmax(pfloor, 0.5*beta0*b2_env);
             } else {
                 p_set = fmax(pfloor, 0.5*(b2_env - b2_loc) + 0.5*beta0*b2_env);
             }
@@ -973,7 +980,8 @@ void ProblemGenerator::UserProblem(ParameterInput *pin, const bool restart){
             Real rmin = epsilon*r_interior;
             Real r = sqrt(fmax(dx*dx + dy*dy + dz*dz, rmin*rmin));
             const Real costheta = fmax(-1.0, fmin(1.0, dz/r));
-            const Real sintheta = sqrt(fmax(1.0-costheta*costheta, 0.0));
+            const Real sin2_theta = fmax(1.0-costheta*costheta, 0.0);
+            const Real sintheta = sqrt(sin2_theta);
             // assign SNR properties
 
             // assign the floor based on the sigma floor, not on the actual density floor
@@ -991,13 +999,18 @@ void ProblemGenerator::UserProblem(ParameterInput *pin, const bool restart){
 
             const Real h = 1.0;
 
-            Real B_sqr_env = SQR(B0*r_star*h/r)*(sintheta*sintheta+b);        // unstriped envelope
+            Real B_sqr_env;
+            if (sin4){
+                B_sqr_env = SQR(B0*r_star*h/r)*(sin2_theta+b);
+            } else {
+                B_sqr_env = SQR(B0*r_star*h/r)*(SQR(sin2_theta)+b);
+            }       // unstriped envelope
             Real gam2      = gamma_wind_set*gamma_wind_set;
             Real b2_env    = B_sqr_env/gam2;                      // comoving
             Real b2_loc    = B_sqr_loc/gam2;
             Real p_set;
             if (cold_sheet){
-                p_set = fmax(pfloor, beta0*b2_env);
+                p_set = fmax(pfloor, 0.5*beta0*b2_env);
             } else {
                 p_set = fmax(pfloor, 0.5*(b2_env - b2_loc) + 0.5*beta0*b2_env);
             }
