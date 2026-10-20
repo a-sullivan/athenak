@@ -86,12 +86,32 @@ struct Params {
     Real dfloor;
     Real pfloor;
 
-    // SNR 
-    Real rho0;
-    Real p0;  
+    // Supernova remnant
+    Real rho0;  // density in the SNR
+    Real p0;     // presure inside SNR
+    Real r_i;   // radius which denotes boundary between SNR and PWN
+    Real v_i;   // the initial SNR velocity at the boundary between SNR and PWN
 
 };
 static Params P;
+
+// define the "Hubble" velocity profile for the radially outflowing supernova remnant
+// vr = v_i (r/t_i)
+KOKKOS_INLINE_FUNCTION
+void Hubble_velocity(Real x, Real y, Real z, 
+                    Real x0, Real y0, Real z0, 
+                    Real r_i, Real v_i,
+                    Real &vx, Real &vy, Real &vz){
+
+    const Real x_r = x - x0, y_r = y - y0, z_r = z - z0;
+    const Real r = sqrt(x_r*x_r+y_r*y_r+z_r*z_r);
+    const Real vr = v_i * (r/r_i);
+
+    vx = vr * x_r / r;
+    vy = vr * y_r / r;
+    vz = vr * z_r / r;
+
+}
 
 // |A_theta| inside the polar cap.  Linear + quadratic in sin(theta), with the two
 // coefficients chosen so that BOTH the value and the slope match sqrt(sin^2+b) at
@@ -809,7 +829,8 @@ void ProblemGenerator::UserProblem(ParameterInput *pin, const bool restart){
     // right now these are not needed, will become relevant when SNR is created
     pw::P.rho0 = pin->GetOrAddReal("problem", "rho0", 1.0);
     pw::P.p0 = pin->GetOrAddReal("problem", "p0", 1.e-4);
-
+    pw::P.r_i = pin->GetOrAddReal("problem", "r_i", 100.0);
+    pw::P.v_i = pin->GetOrAddReal("problem", "v_i", 1000.0);
     
 
     auto *pmbp = pmy_mesh_->pmb_pack;
