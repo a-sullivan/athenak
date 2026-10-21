@@ -854,6 +854,8 @@ void ProblemGenerator::UserProblem(ParameterInput *pin, const bool restart){
         const Real x0 = pw::P.x0, y0 = pw::P.y0, z0 = pw::P.z0;
         const Real rho0 = pw::P.rho0; 
         const Real p0 = pw::P.p0;
+        const Real r_i = pw::P.r_i;
+        const Real v_i = pw::P.v_i;
         const Real e_0 = p0 / (gamma_ad - 1.0);
 
         const Real r_star = pw::P.r_star;
@@ -903,14 +905,17 @@ void ProblemGenerator::UserProblem(ParameterInput *pin, const bool restart){
             if(r >= r_star){
             }
             Real Ax, Ay, Az, Ay_zP, Ay_zM, Az_yP, Az_yM;
+            if (r < r_i) {
+                pw::A_vec_toroidal(xf, yc + 0.5*dx2, zc, x0, y0, z0, chi, B0,  r_star, r_interior, epsilon, b, theta0, edge_width, sin4, Ax, Ay, Az); Az_yP = Az;
+                pw::A_vec_toroidal(xf, yc - 0.5*dx2, zc, x0, y0, z0, chi, B0,  r_star, r_interior, epsilon, b, theta0, edge_width, sin4, Ax, Ay, Az); Az_yM = Az;
+                pw::A_vec_toroidal(xf, yc, zc + 0.5*dx3, x0, y0, z0, chi, B0,  r_star, r_interior, epsilon, b, theta0, edge_width, sin4, Ax, Ay, Az); Ay_zP = Ay;
+                pw::A_vec_toroidal(xf, yc, zc - 0.5*dx3, x0, y0, z0, chi, B0,  r_star, r_interior, epsilon, b, theta0, edge_width, sin4, Ax, Ay, Az); Ay_zM = Ay;
 
-            pw::A_vec_toroidal(xf, yc + 0.5*dx2, zc, x0, y0, z0, chi, B0,  r_star, r_interior, epsilon, b, theta0, edge_width, sin4, Ax, Ay, Az); Az_yP = Az;
-            pw::A_vec_toroidal(xf, yc - 0.5*dx2, zc, x0, y0, z0, chi, B0,  r_star, r_interior, epsilon, b, theta0, edge_width, sin4, Ax, Ay, Az); Az_yM = Az;
-            pw::A_vec_toroidal(xf, yc, zc + 0.5*dx3, x0, y0, z0, chi, B0,  r_star, r_interior, epsilon, b, theta0, edge_width, sin4, Ax, Ay, Az); Ay_zP = Ay;
-            pw::A_vec_toroidal(xf, yc, zc - 0.5*dx3, x0, y0, z0, chi, B0,  r_star, r_interior, epsilon, b, theta0, edge_width, sin4, Ax, Ay, Az); Ay_zM = Ay;
-
-            bf.x1f(m, k, j, ifc) = pw::Bx_from_A(Az_yP, Az_yM, Ay_zP, Ay_zM, dx2, dx3);
-               
+                bf.x1f(m, k, j, ifc) = pw::Bx_from_A(Az_yP, Az_yM, Ay_zP, Ay_zM, dx2, dx3);   
+            } else {
+                bf.x1f(m, k, j, ifc) = 0.0;
+            }
+            
    
 
         });
@@ -936,16 +941,17 @@ void ProblemGenerator::UserProblem(ParameterInput *pin, const bool restart){
 
             Real Ax, Ay, Az, Ax_zP, Ax_zM, Az_xP, Az_xM;
 
-            pw::A_vec_toroidal(xc + 0.5*dx1, yf, zc, x0, y0, z0, chi, B0,  r_star, r_interior, epsilon, b, theta0, edge_width, sin4, Ax, Ay, Az); Az_xP = Az;
-            pw::A_vec_toroidal(xc - 0.5*dx1, yf, zc, x0, y0, z0, chi, B0,  r_star, r_interior, epsilon, b, theta0, edge_width, sin4, Ax, Ay, Az); Az_xM = Az;
-            pw::A_vec_toroidal(xc, yf, zc + 0.5*dx3, x0, y0, z0, chi, B0,  r_star, r_interior, epsilon, b, theta0, edge_width, sin4, Ax, Ay, Az); Ax_zP = Ax;
-            pw::A_vec_toroidal(xc, yf, zc - 0.5*dx3, x0, y0, z0, chi, B0,  r_star, r_interior, epsilon, b, theta0, edge_width, sin4, Ax, Ay, Az); Ax_zM = Ax;
 
-            bf.x2f(m, k, jfc, i) = pw::By_from_A(Ax_zP, Ax_zM, Az_xP, Az_xM, dx3, dx1);
-            
-               
-            
-        
+
+            if {r <r_i}{
+                pw::A_vec_toroidal(xc + 0.5*dx1, yf, zc, x0, y0, z0, chi, B0,  r_star, r_interior, epsilon, b, theta0, edge_width, sin4, Ax, Ay, Az); Az_xP = Az;
+                pw::A_vec_toroidal(xc - 0.5*dx1, yf, zc, x0, y0, z0, chi, B0,  r_star, r_interior, epsilon, b, theta0, edge_width, sin4, Ax, Ay, Az); Az_xM = Az;
+                pw::A_vec_toroidal(xc, yf, zc + 0.5*dx3, x0, y0, z0, chi, B0,  r_star, r_interior, epsilon, b, theta0, edge_width, sin4, Ax, Ay, Az); Ax_zP = Ax;
+                pw::A_vec_toroidal(xc, yf, zc - 0.5*dx3, x0, y0, z0, chi, B0,  r_star, r_interior, epsilon, b, theta0, edge_width, sin4, Ax, Ay, Az); Ax_zM = Ax;
+                bf.x2f(m, k, jfc, i) = pw::By_from_A(Ax_zP, Ax_zM, Az_xP, Az_xM, dx3, dx1);
+            } else {
+                bf.x2f(m, k, jfc, i) = 0.0;
+            }
 
         });
 
@@ -965,17 +971,19 @@ void ProblemGenerator::UserProblem(ParameterInput *pin, const bool restart){
 
             Real r = sqrt(dx*dx + dy*dy + dz*dz);
 
+            if  (r < r_i){
 
+                Real Ax, Ay, Az, Ax_yP, Ax_yM, Ay_xP, Ay_xM;
 
-            Real Ax, Ay, Az, Ax_yP, Ax_yM, Ay_xP, Ay_xM;
+                pw::A_vec_toroidal(xc + 0.5*dx1, yc, zf, x0, y0, z0, chi, B0,  r_star, r_interior, epsilon, b, theta0, edge_width, sin4, Ax, Ay, Az); Ay_xP = Ay;
+                pw::A_vec_toroidal(xc - 0.5*dx1, yc, zf, x0, y0, z0, chi, B0,  r_star, r_interior, epsilon, b, theta0, edge_width, sin4, Ax, Ay, Az); Ay_xM = Ay;
+                pw::A_vec_toroidal(xc, yc + 0.5*dx2, zf , x0, y0, z0, chi, B0,  r_star, r_interior, epsilon, b, theta0, edge_width, sin4, Ax, Ay, Az); Ax_yP = Ax;
+                pw::A_vec_toroidal(xc, yc - 0.5*dx2, zf , x0, y0, z0, chi, B0,  r_star, r_interior, epsilon, b, theta0, edge_width, sin4, Ax, Ay, Az); Ax_yM = Ax;
 
-            pw::A_vec_toroidal(xc + 0.5*dx1, yc, zf, x0, y0, z0, chi, B0,  r_star, r_interior, epsilon, b, theta0, edge_width, sin4, Ax, Ay, Az); Ay_xP = Ay;
-            pw::A_vec_toroidal(xc - 0.5*dx1, yc, zf, x0, y0, z0, chi, B0,  r_star, r_interior, epsilon, b, theta0, edge_width, sin4, Ax, Ay, Az); Ay_xM = Ay;
-            pw::A_vec_toroidal(xc, yc + 0.5*dx2, zf , x0, y0, z0, chi, B0,  r_star, r_interior, epsilon, b, theta0, edge_width, sin4, Ax, Ay, Az); Ax_yP = Ax;
-            pw::A_vec_toroidal(xc, yc - 0.5*dx2, zf , x0, y0, z0, chi, B0,  r_star, r_interior, epsilon, b, theta0, edge_width, sin4, Ax, Ay, Az); Ax_yM = Ax;
-
-            bf.x3f(m, kfc, j, i)  = pw::Bz_from_A(Ay_xP, Ay_xM, Ax_yP, Ax_yM, dx1, dx2);
-               
+                bf.x3f(m, kfc, j, i)  = pw::Bz_from_A(Ay_xP, Ay_xM, Ax_yP, Ax_yM, dx1, dx2);
+            } else {
+                bf.x3f(m, kfc, j, i)  = 0.0;
+            }
             
      
 
@@ -1000,62 +1008,73 @@ void ProblemGenerator::UserProblem(ParameterInput *pin, const bool restart){
             Real dx = xc - x0, dy = yc - y0, dz = zc -z0;
             Real rmin = epsilon*r_interior;
             Real r = sqrt(fmax(dx*dx + dy*dy + dz*dz, rmin*rmin));
-            const Real costheta = fmax(-1.0, fmin(1.0, dz/r));
-            const Real sin2_theta = fmax(1.0-costheta*costheta, 0.0);
-            const Real sintheta = sqrt(sin2_theta);
-            // assign SNR properties
+            if (r < r_i){
+                const Real costheta = fmax(-1.0, fmin(1.0, dz/r));
+                const Real sin2_theta = fmax(1.0-costheta*costheta, 0.0);
+                const Real sintheta = sqrt(sin2_theta);
+                // assign SNR properties
 
-            // assign the floor based on the sigma floor, not on the actual density floor
-            // B0 is normalized by the chosen surface density rho_surf and sigma0 
-            //Real emag_star = SQR(B0*r_star*r_star);
-            Real B_sqr_loc = bcc0(m,IBX,k,j,i)*bcc0(m,IBX,k,j,i)+bcc0(m,IBY,k,j,i)*bcc0(m,IBY,k,j,i)+bcc0(m,IBZ,k,j,i)*bcc0(m,IBZ,k,j,i);
-            Real B_loc = sqrt(B_sqr_loc);
-            Real B_sqr = B_sqr_loc;
-            Real dfloor = fmax(dfloor_original, B_sqr/(gamma_wind*gamma_wind*sigma_max));
-            Real pfloor = fmax(pfloor_original, B_sqr/(2.0*gamma_wind*gamma_wind)*beta_min);
+                // assign the floor based on the sigma floor, not on the actual density floor
+                // B0 is normalized by the chosen surface density rho_surf and sigma0 
+                //Real emag_star = SQR(B0*r_star*r_star);
+                Real B_sqr_loc = bcc0(m,IBX,k,j,i)*bcc0(m,IBX,k,j,i)+bcc0(m,IBY,k,j,i)*bcc0(m,IBY,k,j,i)+bcc0(m,IBZ,k,j,i)*bcc0(m,IBZ,k,j,i);
+                Real B_loc = sqrt(B_sqr_loc);
+                Real B_sqr = B_sqr_loc;
+                Real dfloor = fmax(dfloor_original, B_sqr/(gamma_wind*gamma_wind*sigma_max));
+                Real pfloor = fmax(pfloor_original, B_sqr/(2.0*gamma_wind*gamma_wind)*beta_min);
 
 
-            Real f_k = pw::f_k_analytic(xc, yc, zc, x0, y0, z0, B_loc, sigma0, B0, v_r_wind, r_star, r_interior, epsilon, b, chi, theta0, edge_width, sin4);
-            Real gamma_wind_set = gamma_wind;
+                Real f_k = pw::f_k_analytic(xc, yc, zc, x0, y0, z0, B_loc, sigma0, B0, v_r_wind, r_star, r_interior, epsilon, b, chi, theta0, edge_width, sin4);
+                Real gamma_wind_set = gamma_wind;
 
-            const Real h = 1.0;
+                const Real h = 1.0;
 
-            Real B_sqr_env;
-            if (sin4){
-                B_sqr_env = SQR(B0*r_star*h/r)*(sin2_theta+b);
+                Real B_sqr_env;
+                if (sin4){
+                    B_sqr_env = SQR(B0*r_star*h/r)*(sin2_theta+b);
+                } else {
+                    B_sqr_env = SQR(B0*r_star*h/r)*(SQR(sin2_theta)+b);
+                }       // unstriped envelope
+                Real gam2      = gamma_wind_set*gamma_wind_set;
+                Real b2_env    = B_sqr_env/gam2;                      // comoving
+                Real b2_loc    = B_sqr_loc/gam2;
+                Real p_set;
+                if (cold_sheet){
+                    p_set = fmax(pfloor, 0.5*beta0*b2_env);
+                } else {
+                    p_set = fmax(pfloor, 0.5*(b2_env - b2_loc) + 0.5*beta0*b2_env);
+                }
+                
+
+                Real d_set = fmax(dfloor, f_k/(gamma_wind_set*gamma_wind_set*v_r_wind));
+
+                //std::cout << "sigma = "<< B_sqr/(gamma_wind*gamma_wind*d_set) << std::endl;
+
+
+                
+
+
+                Real dens = d_set;
+                Real pgas = p_set;
+                Real egas = pgas/(gamma_ad-1.0);
+
+
+                
+                w0(m,IDN,k,j,i) = dens;
+                w0(m,IVX,k,j,i) = v_r_wind*gamma_wind_set*dx/r;
+                w0(m,IVY,k,j,i) = v_r_wind*gamma_wind_set*dy/r;
+                w0(m,IVZ,k,j,i) = v_r_wind*gamma_wind_set*dz/r;
+                w0(m,IEN,k,j,i) = egas;
             } else {
-                B_sqr_env = SQR(B0*r_star*h/r)*(SQR(sin2_theta)+b);
-            }       // unstriped envelope
-            Real gam2      = gamma_wind_set*gamma_wind_set;
-            Real b2_env    = B_sqr_env/gam2;                      // comoving
-            Real b2_loc    = B_sqr_loc/gam2;
-            Real p_set;
-            if (cold_sheet){
-                p_set = fmax(pfloor, 0.5*beta0*b2_env);
-            } else {
-                p_set = fmax(pfloor, 0.5*(b2_env - b2_loc) + 0.5*beta0*b2_env);
+                Real vx, vy, vz;
+                pw::Hubble_velocity(xc, yc, zc, x0, y0, z0, r_i, v_i, vx, vy, vz);
+
+                w0(m,IDN,k,j,i) = rho0;
+                w0(m,IVX,k,j,i) = vx;
+                w0(m,IVY,k,j,i) = vy;
+                w0(m,IVZ,k,j,i) = vz;
+                w0(m,IEN,k,j,i) = e_0;
             }
-            
-
-            Real d_set = fmax(dfloor, f_k/(gamma_wind_set*gamma_wind_set*v_r_wind));
-
-            //std::cout << "sigma = "<< B_sqr/(gamma_wind*gamma_wind*d_set) << std::endl;
-
-
-            
-
-
-            Real dens = d_set;
-            Real pgas = p_set;
-            Real egas = pgas/(gamma_ad-1.0);
-
-
-
-            w0(m,IDN,k,j,i) = dens;
-            w0(m,IVX,k,j,i) = v_r_wind*gamma_wind_set*dx/r;
-            w0(m,IVY,k,j,i) = v_r_wind*gamma_wind_set*dy/r;
-            w0(m,IVZ,k,j,i) = v_r_wind*gamma_wind_set*dz/r;
-            w0(m,IEN,k,j,i) = egas;
 
 
         
