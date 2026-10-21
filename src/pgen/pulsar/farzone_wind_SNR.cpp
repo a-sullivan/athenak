@@ -830,7 +830,7 @@ void ProblemGenerator::UserProblem(ParameterInput *pin, const bool restart){
     pw::P.rho0 = pin->GetOrAddReal("problem", "rho0", 1.0);
     pw::P.p0 = pin->GetOrAddReal("problem", "p0", 1.e-4);
     pw::P.r_i = pin->GetOrAddReal("problem", "r_i", 100.0);
-    pw::P.v_i = pin->GetOrAddReal("problem", "v_i", 1000.0);
+    pw::P.v_i = pin->GetOrAddReal("problem", "v_i", 0.003);
     
 
     auto *pmbp = pmy_mesh_->pmb_pack;
@@ -943,7 +943,7 @@ void ProblemGenerator::UserProblem(ParameterInput *pin, const bool restart){
 
 
 
-            if {r <r_i}{
+            if (r < r_i){
                 pw::A_vec_toroidal(xc + 0.5*dx1, yf, zc, x0, y0, z0, chi, B0,  r_star, r_interior, epsilon, b, theta0, edge_width, sin4, Ax, Ay, Az); Az_xP = Az;
                 pw::A_vec_toroidal(xc - 0.5*dx1, yf, zc, x0, y0, z0, chi, B0,  r_star, r_interior, epsilon, b, theta0, edge_width, sin4, Ax, Ay, Az); Az_xM = Az;
                 pw::A_vec_toroidal(xc, yf, zc + 0.5*dx3, x0, y0, z0, chi, B0,  r_star, r_interior, epsilon, b, theta0, edge_width, sin4, Ax, Ay, Az); Ax_zP = Ax;
@@ -1068,11 +1068,11 @@ void ProblemGenerator::UserProblem(ParameterInput *pin, const bool restart){
             } else {
                 Real vx, vy, vz;
                 pw::Hubble_velocity(xc, yc, zc, x0, y0, z0, r_i, v_i, vx, vy, vz);
-
+                const Real gamma_SNR = 1.0/sqrt(1.0-(SQR(vx)+SQR(vy)+SQR(vz)));
                 w0(m,IDN,k,j,i) = rho0;
-                w0(m,IVX,k,j,i) = vx;
-                w0(m,IVY,k,j,i) = vy;
-                w0(m,IVZ,k,j,i) = vz;
+                w0(m,IVX,k,j,i) = gamma_SNR*vx;
+                w0(m,IVY,k,j,i) = gamma_SNR*vy;
+                w0(m,IVZ,k,j,i) = gamma_SNR*vz;
                 w0(m,IEN,k,j,i) = e_0;
             }
 
