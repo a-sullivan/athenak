@@ -92,6 +92,13 @@ struct Params {
     Real r_i;   // radius which denotes boundary between SNR and PWN
     Real v_i;   // the initial SNR velocity at the boundary between SNR and PWN
 
+    // vacuum region
+    Real r_vac; // radius within which to fill the pulsar wind in volume
+
+    // AMR
+    Real r_center_refine;
+    int center_refine_levels;
+
 };
 static Params P;
 
@@ -577,9 +584,9 @@ void Source(Mesh *pm, const Real dt) {
             Real h =1.0;
             Real B_sqr_env;
             if (sin4){
-                B_sqr_env = SQR(B0*r_star*h/r)*(sin2_theta+b);
-            } else {
                 B_sqr_env = SQR(B0*r_star*h/r)*(SQR(sin2_theta)+b);
+            } else {
+                B_sqr_env = SQR(B0*r_star*h/r)*(sin2_theta+b);
             }
    
             Real gam2      = gamma_wind_set*gamma_wind_set;
@@ -660,7 +667,7 @@ void Source(Mesh *pm, const Real dt) {
   
     }
 
-    void EfieldMask(Mesh *pm){
+void EfieldMask(Mesh *pm){
         auto *pack = pm->pmb_pack;
         if (!pack || !pack->pmhd) return;
 
@@ -752,9 +759,49 @@ void Source(Mesh *pm, const Real dt) {
 
     }
 
-    void ResetMask(Mesh *pm, const Real dt){
-        Source(pm, dt);
-    }
+void ResetMask(Mesh *pm, const Real dt){
+    Source(pm, dt);
+}
+
+// refinement condition which is currently unused
+void RefinementCondition(MeshBlockPack* pmbp) {
+    auto &refine_flag = pmbp->pmesh->pmr->refine_flag;
+    int nmb           = pmbp->nmb_thispack;
+    auto &indcs       = pmbp->pmesh->mb_indcs;
+    int &is = indcs.is, nx1 = indcs.nx1;
+    int &js = indcs.js, nx2 = indcs.nx2;
+    int &ks = indcs.ks, nx3 = indcs.nx3;
+    const int nkji = nx3 * nx2 * nx1;
+    const int nji  = nx2 * nx1;
+    int mbs       = pmbp->pmesh->gids_eachrank[global_variable::my_rank];
+    auto &u0     = pmbp->pmhd->u0;
+    auto &size = pmbp->pmb->mb_size;
+    auto &mblev   = pmbp->pmb->mb_lev;
+    const Real x0=P.x0, y0=P.y0, z0=P.z0, r_star=P.r_star;
+    const Real r_center_refine = P.r_center_refine;
+    const int tgt = pmbp -> pmesh->root_level + P.center_refine_levels;
+
+    par_for("farzone_ref", DevExeSpace(), 0, nmb-1, KOKKOS_LAMBDA(int m) {
+        const auto sz = size.d_view(m);
+        // distance from the pulsar to the nearest point of this block (point-to-AABB):
+        // zero in any direction where the block straddles the center
+        const Real dx = fmax(fmax(x0 - sz.x1max, sz.x1min - x0), 0.0);
+        const Real dy = fmax(fmax(y0 - sz.x2max, sz.x2min - y0), 0.0);
+        const Real dz = fmax(fmax(z0 - sz.x3max, sz.x3min - z0), 0.0);
+        if (sqrt(dx*dx + dy*dy + dz*dz) >= r_center_refine) return;   // do not refine outside this radius
+
+        int &flag = refine_flag.d_view(m + mbs);
+        if (mblev.d_view(m) < tgt) {
+        flag = 1;                      // climb to the target
+        } else if (flag < 0) {
+        flag = 0;                      // veto derefinement, but do not veto a +1
+        }
+  });
+
+  // sync host and device
+  refine_flag.template modify<DevExeSpace>();
+  refine_flag.template sync<HostMemSpace>();
+}
 
 
 
@@ -831,7 +878,25 @@ void ProblemGenerator::UserProblem(ParameterInput *pin, const bool restart){
     pw::P.p0 = pin->GetOrAddReal("problem", "p0", 1.e-4);
     pw::P.r_i = pin->GetOrAddReal("problem", "r_i", 100.0);
     pw::P.v_i = pin->GetOrAddReal("problem", "v_i", 0.003);
+
+    // vacuum region (extending from r_vac to r_i)
+    pw::P.r_vac = pin->GetOrAddReal("problem", "r_vac", pw::P.r_i);
+    if (pw::P.r_i < pw::P.r_vac) {
+        std::cout << "### FATAL ERROR in " << __FILE__ << " at line " << __LINE__ << std::endl
+            << "r_vac= " << pw::P.r_vac
+            << " > r_i: vacuum region includes inner edge of SNR" << std::endl;
+        std::exit(EXIT_FAILURE);
+    }
+    if (pw::P.r_vac < pw::P.r_blend) {
+        std::cout << "### FATAL ERROR in " << __FILE__ << " at line " << __LINE__ << std::endl
+            << "r_vac= " << pw::P.r_vac
+            << " < r_blend: vacuum region is within the star blending region" << std::endl;
+        std::exit(EXIT_FAILURE);
+    }
     
+    //manual AMR (not implemented currently)
+    //pw::P.r_center_refine = pin->GetOrAddReal("amr_criterion1", "r_center_refine", 0.0);
+    //pw::P.center_refine_levels = pin->GetOrAddInteger("amr_criterion1", "center_refine_levels", 0);
 
     auto *pmbp = pmy_mesh_->pmb_pack;
     if (!pmbp || !pmbp->pmhd) return; //i.e. do not go any further if class variables are not defined
@@ -857,6 +922,8 @@ void ProblemGenerator::UserProblem(ParameterInput *pin, const bool restart){
         const Real r_i = pw::P.r_i;
         const Real v_i = pw::P.v_i;
         const Real e_0 = p0 / (gamma_ad - 1.0);
+
+        const Real r_vac = pw::P.r_vac;
 
         const Real r_star = pw::P.r_star;
         const Real r_blend = pw::P.r_blend;
@@ -905,7 +972,7 @@ void ProblemGenerator::UserProblem(ParameterInput *pin, const bool restart){
             if(r >= r_star){
             }
             Real Ax, Ay, Az, Ay_zP, Ay_zM, Az_yP, Az_yM;
-            if (r < r_i) {
+            if (r < r_vac) {
                 pw::A_vec_toroidal(xf, yc + 0.5*dx2, zc, x0, y0, z0, chi, B0,  r_star, r_interior, epsilon, b, theta0, edge_width, sin4, Ax, Ay, Az); Az_yP = Az;
                 pw::A_vec_toroidal(xf, yc - 0.5*dx2, zc, x0, y0, z0, chi, B0,  r_star, r_interior, epsilon, b, theta0, edge_width, sin4, Ax, Ay, Az); Az_yM = Az;
                 pw::A_vec_toroidal(xf, yc, zc + 0.5*dx3, x0, y0, z0, chi, B0,  r_star, r_interior, epsilon, b, theta0, edge_width, sin4, Ax, Ay, Az); Ay_zP = Ay;
@@ -943,7 +1010,7 @@ void ProblemGenerator::UserProblem(ParameterInput *pin, const bool restart){
 
 
 
-            if (r < r_i){
+            if (r < r_vac){
                 pw::A_vec_toroidal(xc + 0.5*dx1, yf, zc, x0, y0, z0, chi, B0,  r_star, r_interior, epsilon, b, theta0, edge_width, sin4, Ax, Ay, Az); Az_xP = Az;
                 pw::A_vec_toroidal(xc - 0.5*dx1, yf, zc, x0, y0, z0, chi, B0,  r_star, r_interior, epsilon, b, theta0, edge_width, sin4, Ax, Ay, Az); Az_xM = Az;
                 pw::A_vec_toroidal(xc, yf, zc + 0.5*dx3, x0, y0, z0, chi, B0,  r_star, r_interior, epsilon, b, theta0, edge_width, sin4, Ax, Ay, Az); Ax_zP = Ax;
@@ -971,7 +1038,7 @@ void ProblemGenerator::UserProblem(ParameterInput *pin, const bool restart){
 
             Real r = sqrt(dx*dx + dy*dy + dz*dz);
 
-            if  (r < r_i){
+            if  (r < r_vac){
 
                 Real Ax, Ay, Az, Ax_yP, Ax_yM, Ay_xP, Ay_xM;
 
@@ -1008,7 +1075,7 @@ void ProblemGenerator::UserProblem(ParameterInput *pin, const bool restart){
             Real dx = xc - x0, dy = yc - y0, dz = zc -z0;
             Real rmin = epsilon*r_interior;
             Real r = sqrt(fmax(dx*dx + dy*dy + dz*dz, rmin*rmin));
-            if (r < r_i){
+            if (r < r_vac){
                 const Real costheta = fmax(-1.0, fmin(1.0, dz/r));
                 const Real sin2_theta = fmax(1.0-costheta*costheta, 0.0);
                 const Real sintheta = sqrt(sin2_theta);
@@ -1031,9 +1098,9 @@ void ProblemGenerator::UserProblem(ParameterInput *pin, const bool restart){
 
                 Real B_sqr_env;
                 if (sin4){
-                    B_sqr_env = SQR(B0*r_star*h/r)*(sin2_theta+b);
-                } else {
                     B_sqr_env = SQR(B0*r_star*h/r)*(SQR(sin2_theta)+b);
+                } else {
+                    B_sqr_env = SQR(B0*r_star*h/r)*(sin2_theta+b);
                 }       // unstriped envelope
                 Real gam2      = gamma_wind_set*gamma_wind_set;
                 Real b2_env    = B_sqr_env/gam2;                      // comoving
@@ -1065,6 +1132,12 @@ void ProblemGenerator::UserProblem(ParameterInput *pin, const bool restart){
                 w0(m,IVY,k,j,i) = v_r_wind*gamma_wind_set*dy/r;
                 w0(m,IVZ,k,j,i) = v_r_wind*gamma_wind_set*dz/r;
                 w0(m,IEN,k,j,i) = egas;
+            } else if (r < r_i) {
+                w0(m,IDN,k,j,i) = dfloor_original;
+                w0(m,IVX,k,j,i) = 0.0;
+                w0(m,IVY,k,j,i) = 0.0;
+                w0(m,IVZ,k,j,i) = 0.0;
+                w0(m,IEN,k,j,i) = pfloor_original/(gamma_ad-1.0);
             } else {
                 Real vx, vy, vz;
                 pw::Hubble_velocity(xc, yc, zc, x0, y0, z0, r_i, v_i, vx, vy, vz);
@@ -1085,7 +1158,7 @@ void ProblemGenerator::UserProblem(ParameterInput *pin, const bool restart){
 
 
     }
-
+    //if (user_amr) user_ref_func = &pw::RefinementCondition;
     if (user_srcs) user_srcs_func = &pw::Source;
 
     if (user_esrcs) user_esrcs_func = &pw::EfieldMask;
