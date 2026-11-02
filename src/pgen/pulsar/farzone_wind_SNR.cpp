@@ -91,6 +91,7 @@ struct Params {
     Real p0;     // presure inside SNR
     Real r_i;   // radius which denotes boundary between SNR and PWN
     Real v_i;   // the initial SNR velocity at the boundary between SNR and PWN
+    Real r_e;   // the external radius of the SNR
 
     // vacuum region
     Real r_vac; // radius within which to fill the pulsar wind in volume
@@ -878,6 +879,7 @@ void ProblemGenerator::UserProblem(ParameterInput *pin, const bool restart){
     pw::P.p0 = pin->GetOrAddReal("problem", "p0", 1.e-4);
     pw::P.r_i = pin->GetOrAddReal("problem", "r_i", 100.0);
     pw::P.v_i = pin->GetOrAddReal("problem", "v_i", 0.003);
+    pw::P.r_e = pin->GetOrAddReal("problem", "r_e", 500.0);
 
     // vacuum region (extending from r_vac to r_i)
     pw::P.r_vac = pin->GetOrAddReal("problem", "r_vac", pw::P.r_i);
@@ -922,6 +924,7 @@ void ProblemGenerator::UserProblem(ParameterInput *pin, const bool restart){
         const Real r_i = pw::P.r_i;
         const Real v_i = pw::P.v_i;
         const Real e_0 = p0 / (gamma_ad - 1.0);
+        const Real r_e = pw::P.r_e; 
 
         const Real r_vac = pw::P.r_vac;
 
@@ -1138,7 +1141,7 @@ void ProblemGenerator::UserProblem(ParameterInput *pin, const bool restart){
                 w0(m,IVY,k,j,i) = 0.0;
                 w0(m,IVZ,k,j,i) = 0.0;
                 w0(m,IEN,k,j,i) = pfloor_original/(gamma_ad-1.0);
-            } else {
+            } else if (r < r_e) {
                 Real vx, vy, vz;
                 pw::Hubble_velocity(xc, yc, zc, x0, y0, z0, r_i, v_i, vx, vy, vz);
                 const Real gamma_SNR = 1.0/sqrt(1.0-(SQR(vx)+SQR(vy)+SQR(vz)));
@@ -1147,10 +1150,14 @@ void ProblemGenerator::UserProblem(ParameterInput *pin, const bool restart){
                 w0(m,IVY,k,j,i) = gamma_SNR*vy;
                 w0(m,IVZ,k,j,i) = gamma_SNR*vz;
                 w0(m,IEN,k,j,i) = e_0;
+            } else  { // for ISM outside SNR
+                w0(m,IDN,k,j,i) = dfloor_original;
+                w0(m,IVX,k,j,i) = 0.0;
+                w0(m,IVY,k,j,i) = 0.0;
+                w0(m,IVZ,k,j,i) = 0.0;
+                w0(m,IEN,k,j,i) = pfloor_original/(gamma_ad-1.0);
             }
 
-
-        
         });
         
         // now let us convert the ptimitives to conservative variables
