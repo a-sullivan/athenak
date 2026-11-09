@@ -60,6 +60,8 @@ struct Params {
     // Magnetosphere
     Real sigma0;
     Real beta0;
+    Real L_pw;
+    Real L_0;
     Real rho_surf;
     Real B0;
     Real gamma_wind;
@@ -85,6 +87,9 @@ struct Params {
     Real beta_min;
     Real dfloor;
     Real pfloor;
+
+    // scalars
+    int nscalars;
 
     // Supernova remnant
     Real rho0;  // density in the SNR
@@ -410,7 +415,7 @@ void Source(Mesh *pm, const Real dt) {
   const bool sin4 = pw::P.sin4;
 
 
-
+  const int nscalars = P.nscalars;
   const Real gamma_max = P.gamma_max;
   const bool reset_b = P.reset_b;
   const bool blend_b = P.blend_b;
@@ -618,6 +623,9 @@ void Source(Mesh *pm, const Real dt) {
             w(m,IVY,k,j,i) = v_r_wind*gamma_wind_set*dy/r*blend_smooth + w(m,IVY,k,j,i)*(1.0-blend_smooth);
             w(m,IVZ,k,j,i) = v_r_wind*gamma_wind_set*dz/r*blend_smooth + w(m,IVZ,k,j,i)*(1.0-blend_smooth);
             w(m,IEN,k,j,i) = egas*blend_smooth + w(m,IEN,k,j,i)*(1.0-blend_smooth);
+            if (nscalars > 0) {
+                w(m,IYF,k,j,i) = 1.0*blend_smooth + w(m,IYF,k,j,i)*(1.0-blend_smooth);
+            }
 
             
             
@@ -663,6 +671,9 @@ void Source(Mesh *pm, const Real dt) {
             u(m,IM2,k,j,i) = u_cell.my;
             u(m,IM3,k,j,i) = u_cell.mz;
             u(m,IEN,k,j,i) = u_cell.e;   // SR: E - D, handled inside SingleP2C
+            if (nscalars > 0) {
+                u(m,IYF,k,j,i) = u_cell.d * w(m,IYF,k,j,i);
+            }
         });
 
   
@@ -831,6 +842,7 @@ void ProblemGenerator::UserProblem(ParameterInput *pin, const bool restart){
     pw::P.reset_b = pin->GetOrAddBoolean("problem", "reset_b", true);
 
     pw::P.blend_b = pin->GetOrAddBoolean("problem", "blend_b", false);
+    
 
     if (pw::P.r_blend < pw::P.r_star) {
         std::cout << "### FATAL ERROR in " << __FILE__ << " at line " << __LINE__ << std::endl
@@ -861,15 +873,23 @@ void ProblemGenerator::UserProblem(ParameterInput *pin, const bool restart){
     pw::P.beta_min      = pin->GetOrAddReal("mhd", "beta_min",  1.0e-05);
     pw::P.sigma_max     = pin->GetOrAddReal("mhd", "sigma_max", 1000.0);
     pw::P.gamma_max     = pin->GetOrAddReal("mhd", "gamma_max", 1000.0);
+    pw::P.nscalars = pin->GetOrAddInteger("mhd", "nscalars", 0);
 
     // magnetosphere
     pw::P.gamma_wind =  fmin(pin->GetOrAddReal("problem","gamma_wind",10.0), pw::P.gamma_max);
     pw::P.v_r_wind = sqrt(1.0-1.0/(pw::P.gamma_wind*pw::P.gamma_wind));
     pw::P.sigma0 = pin->GetOrAddReal("problem", "sigma0", 10.0);
     pw::P.beta0      = pin->GetOrAddReal("problem", "beta0",  1.0e-03);
-    pw::P.rho_surf = pin->GetOrAddReal("problem", "rho_surf", 1.0); // set the density at the surface of neutron star
+    pw::P.L_pw  = pin->GetOrAddReal("problem", "L_pw",  10.0); // set the power in the pulsar wind - this will set density at injection region
     pw::P.sin4 = pin->GetOrAddBoolean("problem", "sin4", false);
-    
+    if (pw::P.sin4){
+        pw::P.L_0 = (16.0/15.0 + 2.0*pw::P.b)*(2.0*M_PI);
+    } else {
+        pw::P.L_0 = (4.0/3.0 + 2.0*pw::P.b)*(2.0*M_PI);
+    }
+     
+    pw::P.rho_surf = pw::P.L_pw/(pw::P.L_0*(1.0+pw::P.sigma0)*SQR(pw::P.gamma_wind)*pw::P.v_r_wind *SQR(pw::P.r_star)); // set the density at the surface of neutron star  
+
     pw::P.B0 = pw::P.gamma_wind*sqrt(pw::P.rho_surf*pw::P.sigma0);
     //std::cout << "B0 = "<< pw::P.B0 << std::endl;
 
@@ -930,6 +950,7 @@ void ProblemGenerator::UserProblem(ParameterInput *pin, const bool restart){
 
         const Real r_star = pw::P.r_star;
         const Real r_blend = pw::P.r_blend;
+        const int nscalars = pw::P.nscalars;
         
         
         const Real b = pw::P.b;
@@ -1135,12 +1156,18 @@ void ProblemGenerator::UserProblem(ParameterInput *pin, const bool restart){
                 w0(m,IVY,k,j,i) = v_r_wind*gamma_wind_set*dy/r;
                 w0(m,IVZ,k,j,i) = v_r_wind*gamma_wind_set*dz/r;
                 w0(m,IEN,k,j,i) = egas;
+                if (nscalars > 0) {
+                    w0(m, IYF, k, j, i) = 1.0;
+                }
             } else if (r < r_i) {
                 w0(m,IDN,k,j,i) = dfloor_original;
                 w0(m,IVX,k,j,i) = 0.0;
                 w0(m,IVY,k,j,i) = 0.0;
                 w0(m,IVZ,k,j,i) = 0.0;
                 w0(m,IEN,k,j,i) = pfloor_original/(gamma_ad-1.0);
+                if (nscalars > 0) {
+                    w0(m, IYF, k, j, i) = 0.0;
+                }
             } else if (r < r_e) {
                 Real vx, vy, vz;
                 pw::Hubble_velocity(xc, yc, zc, x0, y0, z0, r_i, v_i, vx, vy, vz);
@@ -1150,12 +1177,18 @@ void ProblemGenerator::UserProblem(ParameterInput *pin, const bool restart){
                 w0(m,IVY,k,j,i) = gamma_SNR*vy;
                 w0(m,IVZ,k,j,i) = gamma_SNR*vz;
                 w0(m,IEN,k,j,i) = e_0;
+                if (nscalars > 0) {
+                    w0(m, IYF, k, j, i) = 0.0;
+                }
             } else  { // for ISM outside SNR
                 w0(m,IDN,k,j,i) = dfloor_original;
                 w0(m,IVX,k,j,i) = 0.0;
                 w0(m,IVY,k,j,i) = 0.0;
                 w0(m,IVZ,k,j,i) = 0.0;
                 w0(m,IEN,k,j,i) = pfloor_original/(gamma_ad-1.0);
+                if (nscalars > 0) {
+                    w0(m, IYF, k, j, i) = 0.0;
+                }
             }
 
         });
