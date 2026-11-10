@@ -20,7 +20,7 @@
 //   r_star           neutron star radius (default 1.0)
 //  sigma0           initial  magnetization (default 10)
 // theta0           regularization parameter for poles to ensure no numerical issues
-//   rho0            SNR density
+//   rho0            SNR density (set by choosing L_pw, Me, L_phys, and ell)
 //   p0              SNR pressure
 
 //
@@ -97,6 +97,11 @@ struct Params {
     Real r_i;   // radius which denotes boundary between SNR and PWN
     Real v_i;   // the initial SNR velocity at the boundary between SNR and PWN
     Real r_e;   // the external radius of the SNR
+
+    // physical values
+    Real Me; // Mass of SNR ejecta in grams
+    Real L_phys; // physical luminosity of the pulsar wind in erg/s
+    Real ell; // physical length scale of the grid in cm
 
     // vacuum region
     Real r_vac; // radius within which to fill the pulsar wind in volume
@@ -895,11 +900,20 @@ void ProblemGenerator::UserProblem(ParameterInput *pin, const bool restart){
 
     // SNR parameters 
     // right now these are not needed, will become relevant when SNR is created
-    pw::P.rho0 = pin->GetOrAddReal("problem", "rho0", 1.0);
+    // rho0 is not longer defined in input file but set from ejecta mass, pulsar luminosity, the grid size, and code value of L_pw
+    //pw::P.rho0 = pin->GetOrAddReal("problem", "rho0", 1.0);
     pw::P.p0 = pin->GetOrAddReal("problem", "p0", 1.e-4);
     pw::P.r_i = pin->GetOrAddReal("problem", "r_i", 100.0);
     pw::P.v_i = pin->GetOrAddReal("problem", "v_i", 0.003);
     pw::P.r_e = pin->GetOrAddReal("problem", "r_e", 500.0);
+
+    // physical values
+    Real Msun = 1.989e33; // grams
+    Real c_cgs = 2.99792458e10; // cm/s
+    pw::P.ell =  pin->GetOrAddReal("problem", "ell", 1.0e17); // physical length scale of grid
+    pw::P.Me = pin->GetOrAddReal("problem", "Me", 3.0)*Msun; // mass of the ejecta in solar masses
+    pw::P.L_phys = pin->GetOrAddReal("problem", "L_phys", 5.0e38); // physical luminosity of the pulsar wind in erg/s
+    pw::P.rho0 = 3.0/4.0/M_PI*pw::P.L_pw/(pow(pw::P.r_e, 3.0)-pow(pw::P.r_i, 3.0))*(pw::P.Me*pow(c_cgs, 3.0)/(pw::P.L_phys*pw::P.ell));
 
     // vacuum region (extending from r_vac to r_i)
     pw::P.r_vac = pin->GetOrAddReal("problem", "r_vac", pw::P.r_i);
