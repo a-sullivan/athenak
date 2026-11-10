@@ -835,11 +835,11 @@ void ProblemGenerator::UserProblem(ParameterInput *pin, const bool restart){
     // read the parameters from inside the input file
 
     // neutron star paremeters
-    pw::P.r_star = pin->GetOrAddReal("problem", "r_star", 10.0);
+    pw::P.r_star = pin->GetOrAddReal("problem", "r_star", 1.0);
     pw::P.chi = pin->GetOrAddReal("problem", "chi", 0.0);
     //pw::P.Omega = pin->GetOrAddReal("problem", "Omega", 0.0);
     //pw::P.t_ramp = pin->GetOrAddReal("problem", "t_ramp", 20.0);
-    pw::P.r_blend = pin->GetOrAddReal("problem", "r_blend", 11.0);
+    pw::P.r_blend = pin->GetOrAddReal("problem", "r_blend", 1.5);
 
     pw::P.cold_sheet = pin->GetOrAddBoolean("problem", "cold_sheet", true);
 
@@ -903,9 +903,9 @@ void ProblemGenerator::UserProblem(ParameterInput *pin, const bool restart){
     // rho0 is not longer defined in input file but set from ejecta mass, pulsar luminosity, the grid size, and code value of L_pw
     //pw::P.rho0 = pin->GetOrAddReal("problem", "rho0", 1.0);
     pw::P.p0 = pin->GetOrAddReal("problem", "p0", 1.e-4);
-    pw::P.r_i = pin->GetOrAddReal("problem", "r_i", 100.0);
+    pw::P.r_i = pin->GetOrAddReal("problem", "r_i", 10.0);
     pw::P.v_i = pin->GetOrAddReal("problem", "v_i", 0.003);
-    pw::P.r_e = pin->GetOrAddReal("problem", "r_e", 500.0);
+    pw::P.r_e = pin->GetOrAddReal("problem", "r_e", 50.0);
 
     // physical values
     Real Msun = 1.989e33; // grams
