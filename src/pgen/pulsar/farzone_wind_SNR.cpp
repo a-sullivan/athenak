@@ -776,8 +776,38 @@ void EfieldMask(Mesh *pm){
 
     }
 
+
+    // Clamp passive scalars to [0,1] and keep cons consistent with D.
+    // Runs right after ConToPrim (via EnforceReset), so equivalent to clamping in the EOS.
+    void ClampScalars(Mesh *pm) {
+        auto *pack = pm->pmb_pack;
+        if (!pack || !pack->pmhd) return;
+        const int nmhd  = pack->pmhd->nmhd;
+        const int nscal = pack->pmhd->nscalars;
+        if (nscal == 0) return;
+
+        auto &w = pack->pmhd->w0;
+        auto &u = pack->pmhd->u0;
+        auto &indcs = pm->mb_indcs;
+        const int n1m1 = indcs.nx1 + 2*indcs.ng - 1;
+        const int n2m1 = (indcs.nx2 > 1) ? (indcs.nx2 + 2*indcs.ng - 1) : 0;
+        const int n3m1 = (indcs.nx3 > 1) ? (indcs.nx3 + 2*indcs.ng - 1) : 0;
+
+        par_for("clamp_scalars", DevExeSpace(), 0, pack->nmb_thispack-1,
+                0, n3m1, 0, n2m1, 0, n1m1,
+        KOKKOS_LAMBDA(const int m, const int k, const int j, const int i) {
+            for (int n = nmhd; n < nmhd + nscal; ++n) {
+                Real s = w(m,n,k,j,i);
+                s = (s == s) ? fmin(fmax(s, 0.0), 1.0) : 0.0;  // NaN -> 0
+                w(m,n,k,j,i) = s;
+                u(m,n,k,j,i) = u(m,IDN,k,j,i)*s;
+            }
+        });
+    }
+
 void ResetMask(Mesh *pm, const Real dt){
     Source(pm, dt);
+    ClampScalars(pm);
 }
 
 // refinement condition which is currently unused
