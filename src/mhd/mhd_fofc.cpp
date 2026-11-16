@@ -122,6 +122,9 @@ void MHD::FOFC(Driver *pdriver, int stage) {
   auto &excision_flux_ = pmy_pack->pcoord->excision_flux;
   auto &w0_ = w0;
   auto &b0_ = b0;
+  // include number of scalars
+  int nmhd_s = nmhd; // this is the number of mhd variables and thus the index of the first passive scalar 
+  int nscal_ = nscalars;
 
   // Index bounds
   int il = is-1, iu = ie+1, jl = js, ju = je, kl = ks, ku = ke;
@@ -195,7 +198,13 @@ void MHD::FOFC(Driver *pdriver, int stage) {
         if (eos.is_ideal) {flx1(m,IEN,k,j,i) = flux.e;}
         e3x1_(m,k,j,i) = flux.by;
         e2x1_(m,k,j,i) = flux.bz;
+
+        for (int n = nmhd_s; n <nmhd_s+nscal_;++n){ // loop over the different passive scalars
+          flx1(m, n, k, j, i) = (flux.d >= 0.0) ? flux.d*w0_(m, n, k, j, i-1) : flux.d*w0_(m, n, k, j, i);
+        }
       }
+
+
 
       if (multi_d) {
         // load W_{j-1} state, permutting components of vectors
@@ -248,6 +257,10 @@ void MHD::FOFC(Driver *pdriver, int stage) {
         if (eos.is_ideal) {flx2(m,IEN,k,j,i) = flux.e;}
         e1x2_(m,k,j,i) = flux.by;
         e3x2_(m,k,j,i) = flux.bz;
+
+        for (int n = nmhd_s; n <nmhd_s+nscal_;++n){ // loop over the different passive scalars
+          flx2(m, n, k, j, i) = (flux.d >= 0.0) ? flux.d*w0_(m, n, k, j-1, i) : flux.d*w0_(m, n, k, j, i);
+        }
       }
 
       if (three_d) {
@@ -301,6 +314,10 @@ void MHD::FOFC(Driver *pdriver, int stage) {
         if (eos.is_ideal) {flx3(m,IEN,k,j,i) = flux.e;}
         e2x3_(m,k,j,i) = flux.by;
         e1x3_(m,k,j,i) = flux.bz;
+
+        for (int n = nmhd_s; n <nmhd_s+nscal_;++n){ // loop over the different passive scalars
+          flx3(m, n, k, j, i) = (flux.d >= 0.0) ? flux.d*w0_(m, n, k-1, j, i) : flux.d*w0_(m, n, k, j, i);
+        }
       }
     }
   });
@@ -372,6 +389,10 @@ void MHD::FOFC(Driver *pdriver, int stage) {
         if (eos.is_ideal) {flx1(m,IEN,k,j,i+1) = flux.e;}
         e3x1_(m,k,j,i+1) = flux.by;
         e2x1_(m,k,j,i+1) = flux.bz;
+
+        for (int n = nmhd_s; n <nmhd_s+nscal_;++n){ // loop over the different passive scalars
+          flx1(m, n, k, j, i+1) = (flux.d >= 0.0) ? flux.d*w0_(m, n, k, j, i) : flux.d*w0_(m, n, k, j, i+1);
+        }
       }
 
       if (multi_d) {
@@ -425,6 +446,10 @@ void MHD::FOFC(Driver *pdriver, int stage) {
         if (eos.is_ideal) {flx2(m,IEN,k,j+1,i) = flux.e;}
         e1x2_(m,k,j+1,i) = flux.by;
         e3x2_(m,k,j+1,i) = flux.bz;
+
+        for (int n = nmhd_s; n <nmhd_s+nscal_;++n){ // loop over the different passive scalars
+          flx2(m, n, k, j+1, i) = (flux.d >= 0.0) ? flux.d*w0_(m, n, k, j, i) : flux.d*w0_(m, n, k, j+1, i);
+        }
       }
 
       if (three_d) {
@@ -478,6 +503,10 @@ void MHD::FOFC(Driver *pdriver, int stage) {
         if (eos.is_ideal) {flx3(m,IEN,k+1,j,i) = flux.e;}
         e2x3_(m,k+1,j,i) = flux.by;
         e1x3_(m,k+1,j,i) = flux.bz;
+
+        for (int n = nmhd_s; n <nmhd_s+nscal_;++n){ // loop over the different passive scalars
+          flx3(m, n, k+1, j, i) = (flux.d >= 0.0) ? flux.d*w0_(m, n, k, j, i) : flux.d*w0_(m, n, k+1, j, i);
+        }
       }
     }
   });
